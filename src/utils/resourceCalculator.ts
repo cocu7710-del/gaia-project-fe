@@ -1,0 +1,64 @@
+import type { PlayerStateResponse } from '../api/client';
+import type { ResourceCost } from '../types/turnActions';
+
+export class ResourceCalculator {
+  static canAfford(
+    playerState: PlayerStateResponse,
+    cost: ResourceCost
+  ): boolean {
+    return (
+      playerState.credit >= (cost.credit || 0) &&
+      playerState.ore >= (cost.ore || 0) &&
+      playerState.knowledge >= (cost.knowledge || 0) &&
+      playerState.qic >= (cost.qic || 0) &&
+      playerState.powerBowl3 >= (cost.power || 0) &&
+      playerState.victoryPoints >= (cost.vp || 0)
+    );
+  }
+
+  static applyResourceCost(
+    state: PlayerStateResponse,
+    cost: ResourceCost
+  ): PlayerStateResponse {
+    return {
+      ...state,
+      credit: state.credit - (cost.credit || 0),
+      ore: state.ore - (cost.ore || 0),
+      knowledge: state.knowledge - (cost.knowledge || 0),
+      qic: state.qic - (cost.qic || 0),
+      // 사용된 파워는 3구역에서 차감 → 1구역으로 반환
+      powerBowl1: state.powerBowl1 + (cost.power || 0),
+      powerBowl3: state.powerBowl3 - (cost.power || 0),
+      victoryPoints: state.victoryPoints - (cost.vp || 0),
+    };
+  }
+
+  static applyResourceGain(
+    state: PlayerStateResponse,
+    gain: ResourceCost
+  ): PlayerStateResponse {
+    return {
+      ...state,
+      credit: state.credit + (gain.credit || 0),
+      ore: state.ore + (gain.ore || 0),
+      knowledge: state.knowledge + (gain.knowledge || 0),
+      qic: state.qic + (gain.qic || 0),
+      powerBowl3: state.powerBowl3 + (gain.power || 0),
+      powerBowl1: state.powerBowl1 + (gain.powerToken || 0),
+      victoryPoints: state.victoryPoints + (gain.vp || 0),
+    };
+  }
+
+  static calculateResourceDelta(
+    original: PlayerStateResponse,
+    preview: PlayerStateResponse
+  ) {
+    return {
+      credit: preview.credit - original.credit,
+      ore: preview.ore - original.ore,
+      knowledge: preview.knowledge - original.knowledge,
+      qic: preview.qic - original.qic,
+      power: preview.powerBowl3 - original.powerBowl3
+    };
+  }
+}

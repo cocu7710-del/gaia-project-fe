@@ -1,0 +1,27 @@
+import ROUND_TILE_FEDERATION from '@/assets/round_scoring/ROUND_TILE_FEDERATION.png';
+import ROUND_TILE_MINE from '@/assets/round_scoring/ROUND_TILE_MINE.png';
+import ROUND_TILE_TRADING_STATION_4 from '@/assets/round_scoring/ROUND_TILE_TRADING_STATION_4.png';
+import ROUND_TILE_TRADING_STATION_3 from '@/assets/round_scoring/ROUND_TILE_TRADING_STATION_3.png';
+import ROUND_TILE_GAIA_PLANET_4 from '@/assets/round_scoring/ROUND_TILE_GAIA_PLANET_4.png';
+import ROUND_TILE_RESEARCH_ADVANCE from '@/assets/round_scoring/ROUND_TILE_RESEARCH_ADVANCE.png';
+import ROUND_TILE_TERRAFORM from '@/assets/round_scoring/ROUND_TILE_TERRAFORM.png';
+import ROUND_TILE_GAIA_PLANET_3 from '@/assets/round_scoring/ROUND_TILE_GAIA_PLANET_3.png';
+import ROUND_TILE_ACADEMY from '@/assets/round_scoring/ROUND_TILE_ACADEMY.png';
+import ROUND_TILE_NEW_SECTOR from '@/assets/round_scoring/ROUND_TILE_NEW_SECTOR.png';
+import ROUND_TILE_PLANETARY_INSTITUTE from '@/assets/round_scoring/ROUND_TILE_PLANETARY_INSTITUTE.png';
+import ROUND_TILE_NEW_PLANET_TYPE from '@/assets/round_scoring/ROUND_TILE_NEW_PLANET_TYPE.png';
+
+export const ROUND_SCORING_IMAGE_MAP: Record<string, string> = {
+  ROUND_TILE_FEDERATION,
+  ROUND_TILE_MINE,
+  ROUND_TILE_TRADING_STATION_4,
+  ROUND_TILE_TRADING_STATION_3,
+  ROUND_TILE_GAIA_PLANET_4,
+  ROUND_TILE_RESEARCH_ADVANCE,
+  ROUND_TILE_TERRAFORM,
+  ROUND_TILE_GAIA_PLANET_3,
+  ROUND_TILE_ACADEMY,
+  ROUND_TILE_NEW_SECTOR,
+  ROUND_TILE_PLANETARY_INSTITUTE,
+  ROUND_TILE_NEW_PLANET_TYPE,
+};
