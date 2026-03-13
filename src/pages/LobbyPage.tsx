@@ -19,8 +19,6 @@ import FederationTiles from '../components/FederationTiles';
 import PowerActions from '../components/PowerActions';
 import RoundBoosters from '../components/RoundBoosters';
 import TurnConfirmationPanel from '../components/TurnConfirmationPanel';
-import FactionAbilityPanel from '../components/FactionAbilityPanel';
-
 export default function LobbyPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();

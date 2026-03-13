@@ -28,7 +28,7 @@ export default function TurnConfirmationPanel({
   error,
   selectingPassBooster,
 }: TurnConfirmationPanelProps) {
-  const { tentativeTechTileCode, tentativeTechTrackCode, fleetShipMode } = useGameStore();
+  const { tentativeTechTileCode, fleetShipMode } = useGameStore();
   const isPlayingPhase = gamePhase === 'PLAYING';
 
   // 부스터/파워 테라포밍/split 함대 액션 후 후속 행동(광산/우주선) 미완료 시 확정 불가

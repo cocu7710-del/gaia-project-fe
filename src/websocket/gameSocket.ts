@@ -10,7 +10,12 @@ export type EventType =
   | 'GAME_STARTED'
   | 'MINE_PLACED'
   | 'TURN_CHANGED'
+  | 'PLAYER_PASSED'
+  | 'ROUND_STARTED'
   | 'ROUND_CHANGED'
+  | 'LEECH_OFFERED'
+  | 'LEECH_DECIDED'
+  | 'DEFERRED_ACTION_REQUIRED'
   | 'STATE_UPDATED';
 
 export interface GameEvent {

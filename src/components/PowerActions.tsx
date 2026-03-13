@@ -11,7 +11,15 @@ interface PowerActionsProps {
   playerStates: { seatNo: number; powerBowl3: number; [key: string]: any }[];
 }
 
-const POWER_ACTION_SLOTS = [
+interface PowerActionSlot {
+  code: string;
+  cost: number;
+  left: number;
+  description: string;
+  gain: Record<string, number>;
+}
+
+const POWER_ACTION_SLOTS: PowerActionSlot[] = [
   { code: 'PWR_KNOWLEDGE', cost: 7, left: 10.5, description: '지식 +3',       gain: { knowledge: 3 } },
   { code: 'PWR_TERRAFORM_2', cost: 5, left: 23,   description: '테라포밍 2단계', gain: {} },
   { code: 'PWR_ORE',        cost: 4, left: 36,   description: '광석 +2',       gain: { ore: 2 } },

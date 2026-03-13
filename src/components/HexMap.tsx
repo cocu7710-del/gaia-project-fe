@@ -228,7 +228,6 @@ function RemovedPomerPanel({
 
 const LEGEND_HOME_TYPES = ['TERRA', 'VOLCANIC', 'OXIDE', 'DESERT', 'SWAMP', 'TITANIUM', 'ICE'] as const;
 const LEGEND_OTHER_TYPES = ['GAIA', 'LOST_PLANET', 'TRANSDIM', 'ASTEROIDS'] as const;
-const ALL_LEGEND_TYPES = [...LEGEND_HOME_TYPES, ...LEGEND_OTHER_TYPES] as const;
 
 function Legend({ seats }: { seats: SeatView[] }) {
   const buildings = useGameStore(s => s.buildings);
@@ -352,22 +351,6 @@ function SectorLabels({
   );
 }
 
-/** 정N각형 꼭짓점 문자열 */
-function polygonPts(cx: number, cy: number, r: number, sides: number, startAngle = -Math.PI / 2): string {
-  return Array.from({ length: sides }, (_, i) => {
-    const a = startAngle + (2 * Math.PI / sides) * i;
-    return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
-  }).join(' ');
-}
-
-/** 5각 별 꼭짓점 문자열 (외반경 outerR, 내반경 innerR) */
-function starPts(cx: number, cy: number, outerR: number, innerR: number): string {
-  return Array.from({ length: 10 }, (_, i) => {
-    const a = -Math.PI / 2 + (Math.PI / 5) * i;
-    const r = i % 2 === 0 ? outerR : innerR;
-    return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
-  }).join(' ');
-}
 
 const BUILDING_IMAGES: Record<string, string> = {
   MINE: mineBuildingPng,

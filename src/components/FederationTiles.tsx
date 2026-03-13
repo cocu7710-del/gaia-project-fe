@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { roomApi, fleetApi } from '../api/client';
 import { ResourceCalculator } from '../utils/resourceCalculator';
-import type { TechTileInfo, FederationTileInfo, ArtifactInfo } from '../api/client';
+import type { TechTileInfo, ArtifactInfo } from '../api/client';
 import type { FleetShipAction } from '../types/turnActions';
 import { useGameStore } from '../store/gameStore';
 import { PLANET_COLORS } from '../constants/colors';
