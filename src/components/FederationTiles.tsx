@@ -186,6 +186,8 @@ function getPlanetTypeFromFaction(factionCode: string | null): string {
     GLEENS: 'OXIDE', XENOS: 'OXIDE',
     FIRAKS: 'TITANIUM', BESCODS: 'TITANIUM',
     ITARS: 'ICE', NEVLAS: 'ICE',
+    MOWEIDS: 'LOST_PLANET', SPACE_GIANTS: 'LOST_PLANET',
+    TINKEROIDS: 'ASTEROIDS', DAKANIANS: 'ASTEROIDS',
   };
   return map[factionCode] || 'TERRA';
 }

@@ -96,7 +96,7 @@ interface Props {
 }
 
 export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSeatNo, playerStates = [], boosters = [], onClaimSeat, isMyTurn = false, gamePhase, onBurnPower }: Props) {
-  const { turnState, tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet, economyTrackOption, addFreeConvert, techTileData, addPendingAction } = useGameStore();
+  const { turnState, tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet, economyTrackOption, addFreeConvert, techTileData, addPendingAction, leechBatch } = useGameStore();
   const { previewPlayerState } = turnState;
 
   const getPlayerState = (seatNo: number): PlayerStateResponse | undefined => {
@@ -113,6 +113,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
         const isTaken = seat.playerId !== null;
         const canSelect = !isTaken && !mySeatNo;
         const isCurrentTurn = currentTurnSeatNo === seat.seatNo;
+        const isLeechDecider = leechBatch?.currentDeciderId != null && seat.playerId === leechBatch.currentDeciderId;
         const playerState = getPlayerState(seat.seatNo);
         const planetColor = PLANET_COLORS[seat.homePlanetType] || '#666';
 
@@ -172,6 +173,8 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
             key={seat.seatNo}
             className={`relative game-panel ${
               isCurrentTurn ? 'ring-2 ring-emerald-400/70 !border-emerald-500/30' : ''
+            } ${
+              isLeechDecider ? 'ring-2 ring-purple-400/70 !border-purple-500/30' : ''
             }`}
           >
             {/* 메인 영역 */}

@@ -157,13 +157,15 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
 
       {/* 기술 타일 선택 배너 */}
       {hasPendingTechPick && (
-        <div className="mb-1 px-2 py-1 rounded text-[10px] font-semibold text-center bg-yellow-700 text-white">
+        <div className={`mb-1 px-2 py-1 rounded text-[10px] font-semibold text-center text-white ${
+          pickingTrackFor ? 'bg-green-700 animate-pulse' : 'bg-yellow-700'
+        }`}>
           {pickingTrackFor
-            ? '지식을 올릴 트랙을 선택해 주세요'
+            ? `▼ ${pickingTrackFor.replace('BASIC_', '')} 선택됨 — 아래 트랙을 클릭하여 지식을 올릴 트랙을 지정하세요 ▼`
             : tentativeTechTileCode
               ? `선택됨: ${tentativeTechTileCode.replace('BASIC_', '')}${tentativeTechTrackCode ? ` (${tentativeTechTrackCode})` : ''} — 확정 시 적용`
-              : '기술 타일을 선택하세요'}
-          {tentativeTechTileCode && (
+              : '기술 타일을 선택하세요 (트랙 아래 또는 하단 공용타일)'}
+          {(tentativeTechTileCode || pickingTrackFor) && (
             <button
               onClick={() => { setTentativeTechTile(null, null); setPickingTrackFor(null); }}
               className="ml-2 text-yellow-200 underline text-[9px]"
@@ -199,67 +201,94 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
         })}
       </div>
 
-      {/* 전체 트랙 아래: 공용/함대 타일 3개 */}
-      <div className="mt-1 px-0">
-        <div className="flex gap-1">
-          {Array.from({ length: 3 }).map((_, idx) => {
-            const bottomTiles = basicTiles.filter(
-                (t) => t.trackCode === 'EXPANSION' || t.trackCode === 'COMMON'
-            );
-            const tile = bottomTiles[idx];
-            const code = tile?.tileCode;
-            const imgSrc = code ? TECH_TILE_IMAGE_MAP[code] : undefined;
-            const takenColor = getPlayerColorById(tile?.takenByPlayerId);
-            const canClick = hasPendingTechPick && !tentativeTechTileCode && !pickingTrackFor && !!tile && !tile.isTaken;
-            return (
-                <div
-                    key={tile?.tileCode ?? `bottom-slot-${idx}`}
-                    onClick={canClick ? () => handleTileClick(tile!) : undefined}
+      {/* 트랙 아래: COMMON 공용타일 (연구소/아카데미 업그레이드 시 선택 가능) */}
+      {(() => {
+        const commonTiles = basicTiles.filter((t) => t.trackCode === 'COMMON');
+        if (commonTiles.length === 0) return null;
+        return (
+          <div className="mt-1 px-0">
+            <div className="flex gap-1">
+              {commonTiles.map((tile) => {
+                const code = tile.tileCode;
+                const imgSrc = TECH_TILE_IMAGE_MAP[code];
+                const takenColor = getPlayerColorById(tile.takenByPlayerId);
+                const isSelected = pickingTrackFor === tile.tileCode;
+                const canClick = hasPendingTechPick && !tentativeTechTileCode && !pickingTrackFor && !tile.isTaken;
+                return (
+                  <div
+                    key={tile.tileCode}
+                    onClick={canClick ? () => handleTileClick(tile) : undefined}
                     className={`flex-1 bg-gray-700 border rounded px-1 py-1 text-center relative ${
-                        tile ? '' : 'opacity-30'
+                      tile.isTaken ? 'opacity-40' : ''
                     } ${
-                        canClick ? 'border-yellow-400 cursor-pointer hover:bg-gray-600 ring-1 ring-yellow-400' : 'border-gray-600'
+                      isSelected
+                        ? 'border-green-400 ring-2 ring-green-400 bg-green-900/30'
+                        : canClick
+                          ? 'border-yellow-400 cursor-pointer hover:bg-gray-600 ring-1 ring-yellow-400'
+                          : 'border-gray-600'
                     }`}
-                    style={tile?.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
-                    title={tile?.description ?? ''}
-                >
-                  {takenColor && (
-                    <div
-                      className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full border border-white/80"
-                      style={{ backgroundColor: takenColor }}
-                    />
-                  )}
-                  {imgSrc ? (
+                    style={tile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
+                    title={tile.description}
+                  >
+                    {takenColor && (
+                      <div
+                        className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full border border-white/80"
+                        style={{ backgroundColor: takenColor }}
+                      />
+                    )}
+                    {imgSrc ? (
                       <img src={imgSrc} alt={code} className="mx-auto h-10 w-auto object-contain" draggable={false} />
-                  ) : (
+                    ) : (
                       <span className="text-[8px]">{code ?? ''}</span>
-                  )}
-                </div>
-            );
-          })}
-        </div>
-      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
-      {/* 확장 타일 (하단) */}
-      {/*{basicTiles.filter((t) => t.trackCode === 'EXPANSION' || t.trackCode === 'COMMON').length > 0 && (*/}
-      {/*  <div className="mt-2 pt-2 border-t border-gray-700">*/}
-      {/*    <div className="flex gap-1 flex-wrap">*/}
-      {/*      {basicTiles*/}
-      {/*        .filter((t) => t.trackCode === 'EXPANSION' || t.trackCode === 'COMMON')*/}
-      {/*        .map((tile) => (*/}
-      {/*          <div*/}
-      {/*            key={tile.tileCode}*/}
-      {/*            className={`px-1 py-0.5 rounded text-[8px] ${*/}
-      {/*              tile.isTaken ? 'bg-gray-600 line-through' : 'bg-gray-700'*/}
-      {/*            }`}*/}
-      {/*            title={tile.description}*/}
-      {/*          >*/}
-      {/*            {tile.tileCode.replace('TECH_', '')}*/}
-      {/*          </div>*/}
-      {/*        ))}*/}
-      {/*    </div>*/}
-      {/*  </div>*/}
-      {/*)}*/}
+      {/* EXPANSION 확장타일 (함대 입장 시에만 획득 가능) */}
+      {(() => {
+        const expansionTiles = basicTiles.filter((t) => t.trackCode === 'EXPANSION');
+        if (expansionTiles.length === 0) return null;
+        return (
+          <div className="mt-1 px-0">
+            <div className="flex gap-1">
+              {expansionTiles.map((tile) => {
+                const code = tile.tileCode;
+                const imgSrc = TECH_TILE_IMAGE_MAP[code];
+                const takenColor = getPlayerColorById(tile.takenByPlayerId);
+                return (
+                  <div
+                    key={tile.tileCode}
+                    className={`flex-1 bg-gray-700 border rounded px-1 py-1 text-center relative ${
+                      tile.isTaken ? 'opacity-40' : ''
+                    } border-gray-600`}
+                    style={tile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
+                    title={`[함대] ${tile.description}`}
+                  >
+                    {takenColor && (
+                      <div
+                        className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full border border-white/80"
+                        style={{ backgroundColor: takenColor }}
+                      />
+                    )}
+                    {imgSrc ? (
+                      <img src={imgSrc} alt={code} className="mx-auto h-10 w-auto object-contain opacity-70" draggable={false} />
+                    ) : (
+                      <span className="text-[8px]">{code ?? ''}</span>
+                    )}
+                    <div className="text-[7px] text-gray-400">함대</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
