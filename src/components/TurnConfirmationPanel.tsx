@@ -42,8 +42,20 @@ export default function TurnConfirmationPanel({
   const fleetShipSplitPending = pendingActions.some(
     a => a.type === 'FLEET_SHIP_ACTION' && !(a.payload as any).isImmediate,
   );
+  // 팩션 능력 선언형 (SPACE_GIANTS_TERRAFORM_2, GLEENS_JUMP, IVITS_PLACE_STATION): 후속 행동 필요
+  const factionAbilityPending = pendingActions.some(a => a.type === 'FACTION_ABILITY');
+  // 하이브 우주정거장: 좌표 선택 완료 시 후속 행동 불필요
+  const ivitsStationReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'IVITS_PLACE_STATION' && (a.payload as any).hexQ != null
+  );
+  const firaksReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'FIRAKS_DOWNGRADE' && (a.payload as any).hexQ != null && (a.payload as any).trackCode
+  );
+  const bescodsReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK' && (a.payload as any).trackCode
+  );
   const hasMineOrFleet = pendingActions.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-  const needsFollowUp = (boosterPending || powerTerraformPending || fleetShipSplitPending) && !hasMineOrFleet;
+  const needsFollowUp = (boosterPending || powerTerraformPending || fleetShipSplitPending || (factionAbilityPending && !ivitsStationReady && !firaksReady && !bescodsReady)) && !hasMineOrFleet;
 
   // 헥스 선택 모드 중 (fleetShipMode 활성 = pendingActions 비어있지만 확정 불가)
   const needsFleetHex = fleetShipMode !== null;
@@ -52,9 +64,16 @@ export default function TurnConfirmationPanel({
   // (공용 타일은 트랙까지 선택해야 tentativeTechTileCode가 설정됨 → 별도 체크 불필요)
   const upgradePending = pendingActions.some(
     a => a.type === 'UPGRADE_BUILDING' &&
-      (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY')
+      (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'
+        || (a.payload.toType === 'PLANETARY_INSTITUTE' && a.payload.factionCode === 'SPACE_GIANTS'))
   );
-  const needsTechTile = upgradePending && !tentativeTechTileCode;
+  const rebellionTechPending = pendingActions.some(
+    a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode
+  );
+  const twilightUpgradePending = pendingActions.some(
+    a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_UPGRADE'
+  );
+  const needsTechTile = (upgradePending || rebellionTechPending || twilightUpgradePending) && !tentativeTechTileCode;
 
   const hasMainAction = pendingActions.length > 0 && !needsFollowUp && !needsTechTile && !needsFleetHex;
 
@@ -80,29 +99,6 @@ export default function TurnConfirmationPanel({
 
   return (
     <div className="game-panel">
-      {/* 후속 행동 안내 */}
-      {needsFleetHex && (
-        <div className="mb-1.5 p-1.5 bg-amber-900/50 border border-amber-600/30 text-amber-200 rounded-lg text-[9px]">
-          맵에서 대상 위치를 선택하세요
-        </div>
-      )}
-      {needsFollowUp && (
-        <div className="mb-1.5 p-1.5 bg-amber-900/50 border border-amber-600/30 text-amber-200 rounded-lg text-[9px]">
-          {boosterActionType === 'PLACE_GAIAFORMER'
-            ? '가이아포머 배치할 보라색(TRANSDIM) 행성을 선택하세요'
-            : fleetShipSplitPending
-              ? '광산을 배치할 위치를 선택하세요 (함대 액션 적용됨)'
-              : boosterPending
-                ? '광산 또는 우주선 입장 위치를 선택하세요'
-                : '광산을 배치할 위치를 선택하세요'}
-        </div>
-      )}
-      {needsTechTile && (
-        <div className="mb-1.5 p-1.5 bg-amber-900/50 border border-amber-600/30 text-amber-200 rounded-lg text-[9px]">
-          지식 트랙에서 기술 타일을 선택하세요
-        </div>
-      )}
-
       {/* 에러 */}
       {error && (
         <div className="mb-1.5 p-1.5 bg-red-900/50 border border-red-600/30 text-red-200 rounded-lg text-[9px]">

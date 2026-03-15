@@ -4,6 +4,8 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { roomApi, mapApi, buildingApi, fleetApi } from '../api/client';
 import type { BoosterOfferResponse, PlayerStateResponse } from '../api/client';
 import { PowerLeechDialog } from '../components/PowerLeechDialog';
+import { ItarsGaiaChoiceDialog } from '../components/ItarsGaiaChoiceDialog';
+import { TinkeroidsActionChoiceDialog } from '../components/TinkeroidsActionChoiceDialog';
 import { getTerraformDiscount } from '../utils/terraformingCalculator';
 import type { FleetShipAction, DeployGaiaformerAction } from '../types/turnActions';
 import type { BoosterAction } from '../types/turnActions';
@@ -17,6 +19,7 @@ import TechTracks from '../components/TechTracks';
 import ScoringTracks from '../components/ScoringTracks';
 import FederationTiles from '../components/FederationTiles';
 import PowerActions from '../components/PowerActions';
+import FederationSupply from '../components/FederationSupply';
 import RoundBoosters from '../components/RoundBoosters';
 import TurnConfirmationPanel from '../components/TurnConfirmationPanel';
 export default function LobbyPage() {
@@ -51,10 +54,13 @@ export default function LobbyPage() {
     setUsedPowerActionCodes,
     incrementBurnPower,
     setFleetProbes,
+    setFederationGroups,
     leechBatch,
     setLeechBatch,
     updateLeechDecided,
     clearLeechBatch,
+    setItarsGaiaChoice,
+    setTinkeroidsActionChoice,
   } = useGameStore();
 
   const [loading, setLoading] = useState(true);
@@ -176,6 +182,7 @@ export default function LobbyPage() {
             setTechRefreshKey(k => k + 1);
             await loadUsedPowerActions();
             await loadFleetProbes();
+            try { const fedRes = await roomApi.getFederationGroups(roomId); setFederationGroups(fedRes.data); } catch {}
           }
           break;
 
@@ -189,6 +196,8 @@ export default function LobbyPage() {
 
         case 'ROUND_STARTED':
           clearPendingActions();
+          setItarsGaiaChoice(null);
+          setTinkeroidsActionChoice(null);
           if (roomId) {
             const [stateRes3, playerRes4, hexRes2, buildingRes4] = await Promise.all([
               roomApi.getPublicState(roomId),
@@ -205,12 +214,38 @@ export default function LobbyPage() {
           }
           break;
 
-        case 'LEECH_OFFERED':
+        case 'TINKEROIDS_ACTION_CHOICE': {
+          const tinkPayload = event.payload;
+          setTinkeroidsActionChoice({
+            tinkeroidsPlayerId: tinkPayload.tinkeroidsPlayerId as string,
+            availableActions: tinkPayload.availableActions as string[],
+            currentRound: tinkPayload.currentRound as number,
+          });
+          break;
+        }
+
+        case 'ITARS_GAIA_CHOICE': {
+          const itarsPayload = event.payload;
+          setItarsGaiaChoice({
+            itarsPlayerId: itarsPayload.itarsPlayerId as string,
+            availableChoices: itarsPayload.availableChoices as number,
+          });
+          if (roomId) {
+            const prItars = await roomApi.getPlayerStates(roomId);
+            setPlayerStates(prItars.data);
+          }
+          break;
+        }
+
+        case 'LEECH_OFFERED': {
+          const offers = event.payload.offers as any[];
+          const deciderIds = (event.payload.deciderIds as string[]) ?? offers.map((o: any) => o.receivePlayerId);
           setLeechBatch({
             batchKey: event.payload.batchKey as string,
-            currentLeechId: event.payload.currentLeechId as string,
-            currentDeciderId: event.payload.currentDeciderId as string,
-            offers: event.payload.offers as any[],
+            currentLeechId: offers[0]?.id ?? null,
+            currentDeciderId: deciderIds[0] ?? null,
+            deciderIds,
+            offers,
           });
           // 플레이어 상태 갱신
           if (roomId) {
@@ -218,6 +253,7 @@ export default function LobbyPage() {
             setPlayerStates(prLeech.data);
           }
           break;
+        }
 
         case 'LEECH_DECIDED': {
           const decidedPayload = event.payload;
@@ -230,10 +266,16 @@ export default function LobbyPage() {
               decidedPayload.nextDeciderId as string
             );
           }
-          // 플레이어 상태 갱신
+          // 전체 상태 갱신 (건물/헥스 포함)
           if (roomId) {
-            const prDecided = await roomApi.getPlayerStates(roomId);
+            const [prDecided, buildingResDecided, hexResDecided] = await Promise.all([
+              roomApi.getPlayerStates(roomId),
+              buildingApi.getBuildings(roomId),
+              mapApi.getHexes(roomId),
+            ]);
             setPlayerStates(prDecided.data);
+            setBuildings(buildingResDecided.data);
+            setHexes(hexResDecided.data);
           }
           break;
         }
@@ -349,6 +391,8 @@ export default function LobbyPage() {
         await loadBoosters();
         await loadUsedPowerActions();
         await loadFleetProbes();
+        // 연방 그룹 로드
+        try { const fedRes = await roomApi.getFederationGroups(roomId); setFederationGroups(fedRes.data); } catch {}
       } catch (err: any) {
         setError(err.response?.data?.message || '데이터 로드 실패');
       } finally {
@@ -427,6 +471,9 @@ export default function LobbyPage() {
   // 턴 초기화 - 내 플레이어 상태 로드 시
   useEffect(() => {
     if (!mySeatNo || playerStates.length === 0) return;
+    // 진행 중인 액션이 있으면 초기화하지 않음 (프리뷰 유지)
+    if (turnState.pendingActions.length > 0 || turnState.burnPowerCount > 0 ||
+        (turnState.freeConvertActions && turnState.freeConvertActions.length > 0)) return;
 
     const myPlayerState = playerStates.find(p => p.seatNo === mySeatNo);
     if (myPlayerState) {
@@ -434,14 +481,16 @@ export default function LobbyPage() {
     }
   }, [mySeatNo, playerStates, initializeTurn]);
 
-  // 내 턴인지 판단
+  // 내 턴인지 판단 (리치 결정 대기 / 확정 중에는 모든 플레이어 행동 차단)
   const isMyTurn = useMemo(() => {
     if (!mySeatNo) return false;
+    if (turnState.isConfirming) return false;
+    if (leechBatch && (leechBatch.deciderIds?.length > 0 || leechBatch.currentDeciderId != null)) return false;
     if (gamePhase?.startsWith('SETUP_MINE')) return mySeatNo === nextSetupSeatNo;
     if (gamePhase === 'BOOSTER_SELECTION') return mySeatNo === boosterPickSeatNo;
     if (gamePhase === 'PLAYING') return mySeatNo === currentTurnSeatNo;
     return false;
-  }, [mySeatNo, gamePhase, nextSetupSeatNo, boosterPickSeatNo, currentTurnSeatNo]);
+  }, [mySeatNo, gamePhase, nextSetupSeatNo, boosterPickSeatNo, currentTurnSeatNo, leechBatch, turnState.isConfirming]);
 
   // 파워 소각 - 로컬에서만 추적, 턴 확정 시 백엔드 반영
   const handleBurnPower = () => {
@@ -492,8 +541,8 @@ export default function LobbyPage() {
       setConfirmError('광산을 배치할 위치를 선택하세요.');
       return;
     }
-    if (hasPendingFleetShipSplit && !hasMine) {
-      setConfirmError('광산을 배치할 위치를 선택하세요.');
+    if (hasPendingFleetShipSplit && !hasMine && !hasFleet && !hasGaiaformer) {
+      setConfirmError('위치를 선택하세요.');
       return;
     }
 
@@ -525,8 +574,51 @@ export default function LobbyPage() {
 
         const fleetAction = actions.find(a => a.type === 'FLEET_PROBE');
         const gaiaformerAction = actions.find(a => a.type === 'DEPLOY_GAIAFORMER') as DeployGaiaformerAction | undefined;
+        const factionAbilityAction = actions.find(a => a.type === 'FACTION_ABILITY');
 
-        if (boosterActionPending && gaiaformerAction) {
+        // 하이브 우주정거장: hexQ/hexR가 payload에 있으면 API 호출
+        const ivitsStation = factionAbilityAction?.payload?.abilityCode === 'IVITS_PLACE_STATION' && factionAbilityAction?.payload?.hexQ != null;
+        if (ivitsStation) {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'IVITS_PLACE_STATION',
+            undefined, factionAbilityAction!.payload.hexQ, factionAbilityAction!.payload.hexR);
+          if (!res.data.success) { setConfirmError(res.data.message || '우주정거장 배치 실패'); return; }
+
+        // 파이락 다운그레이드: 연구소 좌표 + 트랙 코드로 BE 호출
+        } else if (factionAbilityAction?.payload?.abilityCode === 'FIRAKS_DOWNGRADE' && factionAbilityAction.payload.hexQ != null) {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'FIRAKS_DOWNGRADE',
+            factionAbilityAction.payload.trackCode, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
+          if (!res.data.success) { setConfirmError(res.data.message || '파이락 다운그레이드 실패'); return; }
+
+        // 매드안드로이드: 최저 트랙 선택 후 BE 호출
+        } else if (factionAbilityAction?.payload?.abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK' && factionAbilityAction.payload.trackCode) {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'BESCODS_ADVANCE_LOWEST_TRACK',
+            factionAbilityAction.payload.trackCode);
+          if (!res.data.success) { setConfirmError(res.data.message || '매드안드로이드 능력 실패'); return; }
+
+        // 종족 능력(2삽/점프) + 후속 광산/우주선/가이아포머: 확정 시 BE 능력 선언 → 후속 행동
+        } else if (factionAbilityAction && mineAction) {
+          // 먼저 BE에 능력 선언
+          const abilityRes = await roomApi.useFactionAbility(roomId, playerId, factionAbilityAction.payload.abilityCode);
+          if (!abilityRes.data.success) { setConfirmError(abilityRes.data.message || '종족 능력 실패'); return; }
+          const qicUsed = mineAction.payload.cost?.qic ?? 0;
+          const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
+          const res = await roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
+          if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
+
+        } else if (factionAbilityAction && fleetAction) {
+          const abilityRes = await roomApi.useFactionAbility(roomId, playerId, factionAbilityAction.payload.abilityCode);
+          if (!abilityRes.data.success) { setConfirmError(abilityRes.data.message || '종족 능력 실패'); return; }
+          const navQic = fleetAction.payload.cost?.qic ?? 0;
+          const res = await fleetApi.placeFleetProbe(roomId, playerId, fleetAction.payload.fleetName, navQic);
+          if (!res.data.success) { setConfirmError(res.data.message || '우주선 입장 실패'); return; }
+
+        } else if (factionAbilityAction && gaiaformerAction) {
+          const abilityRes = await roomApi.useFactionAbility(roomId, playerId, factionAbilityAction.payload.abilityCode);
+          if (!abilityRes.data.success) { setConfirmError(abilityRes.data.message || '종족 능력 실패'); return; }
+          const res = await roomApi.deployGaiaformer(roomId, playerId, gaiaformerAction.payload.hexQ, gaiaformerAction.payload.hexR, gaiaformerAction.payload.qicUsed);
+          if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
+
+        } else if (boosterActionPending && gaiaformerAction) {
           // BOOSTER_12 즉시 포밍: 부스터 사용 + 즉시 GAIA 변환
           const boosterRes = await roomApi.useBoosterAction(roomId, playerId);
           if (!boosterRes.data.success) { setConfirmError(boosterRes.data.message || '부스터 액션 실패'); return; }
@@ -558,6 +650,21 @@ export default function LobbyPage() {
           const gaiaformerUsed = mineAction!.payload.gaiaformerUsed ?? false;
           const res = await roomApi.placeMine(roomId, playerId, mineAction!.payload.hexQ, mineAction!.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
           if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
+
+        } else if (pendingFleetShip && hasFleet && !pendingFleetShip.payload.isImmediate) {
+          // 함대 선박 split 액션 (TWILIGHT_NAV) + 우주선 입장
+          const fsaRes = await roomApi.fleetShipAction(roomId, playerId, pendingFleetShip.payload.actionCode);
+          if (!fsaRes.data.success) { setConfirmError(fsaRes.data.message || '함대 액션 실패'); return; }
+          const navQic = fleetAction!.payload.cost?.qic ?? 0;
+          const res = await fleetApi.placeFleetProbe(roomId, playerId, fleetAction!.payload.fleetName, navQic);
+          if (!res.data.success) { setConfirmError(res.data.message || '우주선 입장 실패'); return; }
+
+        } else if (pendingFleetShip && hasGaiaformer && !pendingFleetShip.payload.isImmediate) {
+          // 함대 선박 split 액션 (TWILIGHT_NAV) + 가이아포머 배치
+          const fsaRes = await roomApi.fleetShipAction(roomId, playerId, pendingFleetShip.payload.actionCode);
+          if (!fsaRes.data.success) { setConfirmError(fsaRes.data.message || '함대 액션 실패'); return; }
+          const res = await roomApi.deployGaiaformer(roomId, playerId, gaiaformerAction!.payload.hexQ, gaiaformerAction!.payload.hexR, gaiaformerAction!.payload.qicUsed);
+          if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
 
         } else if (powerAction && mineAction) {
           // 파워 테라포밍 액션 + 광산 건설 콤보
@@ -605,9 +712,18 @@ export default function LobbyPage() {
         } else if (firstAction.type === 'FLEET_SHIP_ACTION') {
           // 즉시 처리 함대 선박 액션 (hex/track 포함)
           const fsa = firstAction as FleetShipAction;
+          // REBELLION_TECH / TWILIGHT_UPGRADE: tentativeTechTileCode/TrackCode에서 타일+트랙 코드 읽기
+          const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack } = useGameStore.getState();
+          const needsTile = fsa.payload.actionCode === 'REBELLION_TECH' || fsa.payload.actionCode === 'TWILIGHT_UPGRADE';
+          const trackCode = needsTile
+            ? techTile ?? undefined
+            : fsa.payload.trackCode;
+          const techTrackCode = needsTile
+            ? techTrack ?? undefined
+            : undefined;
           const res = await roomApi.fleetShipAction(
             roomId, playerId, fsa.payload.actionCode,
-            fsa.payload.hexQ, fsa.payload.hexR, fsa.payload.trackCode
+            fsa.payload.hexQ, fsa.payload.hexR, trackCode, techTrackCode
           );
           if (!res.data.success) { setConfirmError(res.data.message || '함대 액션 실패'); return; }
 
@@ -638,18 +754,6 @@ export default function LobbyPage() {
 
       clearPendingActions();
       setTechRefreshKey(k => k + 1);
-
-      const [stateRes, buildingRes, playerRes, hexRes] = await Promise.all([
-        roomApi.getPublicState(roomId),
-        buildingApi.getBuildings(roomId),
-        roomApi.getPlayerStates(roomId),
-        mapApi.getHexes(roomId),
-      ]);
-
-      setPublicState(stateRes.data);
-      setBuildings(buildingRes.data);
-      setPlayerStates(playerRes.data);
-      setHexes(hexRes.data);
 
     } catch (err: any) {
       const errorMsg = err.response?.data?.message || '턴 확정 중 오류 발생';
@@ -683,13 +787,7 @@ export default function LobbyPage() {
       if (res.data.success) {
         setSelectingPassBooster(false);
         clearPendingActions();
-        await loadBoosters();
-        // TURN_CHANGED / ROUND_CHANGED 웹소켓 이벤트로 자동 갱신되지만 fallback
-        if (res.data.nextTurnSeatNo !== null && res.data.nextTurnSeatNo !== undefined) {
-          setCurrentTurnSeatNo(res.data.nextTurnSeatNo);
-        }
-        const playerRes = await roomApi.getPlayerStates(roomId);
-        setPlayerStates(playerRes.data);
+        // WebSocket 이벤트(TURN_CHANGED/ROUND_STARTED)로 갱신
       } else {
         setConfirmError(res.data.message || '패스 실패');
       }
@@ -772,6 +870,12 @@ export default function LobbyPage() {
             isMyTurn={isMyTurn}
             gamePhase={gamePhase}
             onBurnPower={handleBurnPower}
+            roomId={roomId}
+            onFactionAbilityDone={async () => {
+              if (!roomId) return;
+              const playerRes = await roomApi.getPlayerStates(roomId);
+              setPlayerStates(playerRes.data);
+            }}
           />
 
           {/* 게임 시작 버튼 */}
@@ -801,7 +905,7 @@ export default function LobbyPage() {
           />
 
           {/* 최종 점수 */}
-          <ScoringTracks roomId={roomId!} seats={seats} />
+          <ScoringTracks roomId={roomId!} seats={seats} refreshKey={techRefreshKey} />
         </div>
 
         {/* 중앙: 맵 (상단) + 지식트랙 (하단) - 55% */}
@@ -837,6 +941,8 @@ export default function LobbyPage() {
             isMyTurn={isMyTurn}
             playerStates={playerStates}
           />
+          {/* 연방 타일 공급 */}
+          <FederationSupply roomId={roomId!} playerId={playerId} isMyTurn={isMyTurn} refreshKey={techRefreshKey} />
           {/* 라운드 부스터 */}
           <RoundBoosters
             boosters={boosters}
@@ -879,6 +985,16 @@ export default function LobbyPage() {
       {/* 파워 리치 결정 다이얼로그 */}
       {currentPlayerId && (
         <PowerLeechDialog roomId={roomId!} myPlayerId={currentPlayerId} />
+      )}
+
+      {/* 팅커로이드 액션 타일 선택 다이얼로그 */}
+      {currentPlayerId && (
+        <TinkeroidsActionChoiceDialog roomId={roomId!} myPlayerId={currentPlayerId} />
+      )}
+
+      {/* 아이타 가이아→기술타일 선택 다이얼로그 */}
+      {currentPlayerId && (
+        <ItarsGaiaChoiceDialog roomId={roomId!} myPlayerId={currentPlayerId} />
       )}
     </div>
   );

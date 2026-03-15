@@ -86,6 +86,12 @@ export function getNavBonus(pendingActions: { type: string; payload: any }[]): n
   );
   if (fleetAct) return fleetAct.payload.navBonus ?? 3;
 
+  // 팩션 능력: GLEENS_JUMP (2거리 점프)
+  const factionAct = pendingActions.find(
+    a => a.type === 'FACTION_ABILITY' && a.payload.abilityCode === 'GLEENS_JUMP',
+  );
+  if (factionAct) return factionAct.payload.navBonus ?? 2;
+
   return 0;
 }
 
@@ -111,6 +117,12 @@ export function getTerraformDiscount(pendingActions: { type: string; payload: an
     a => a.type === 'FLEET_SHIP_ACTION' && a.payload.actionCode === 'TF_MARS_TERRAFORM',
   );
   if (fleetAct) return fleetAct.payload.terraformDiscount ?? 1;
+
+  // 팩션 능력: SPACE_GIANTS_TERRAFORM_2 (2삽 테라포밍)
+  const factionAct = pendingActions.find(
+    a => a.type === 'FACTION_ABILITY' && a.payload.abilityCode === 'SPACE_GIANTS_TERRAFORM_2',
+  );
+  if (factionAct) return factionAct.payload.terraformDiscount ?? 2;
 
   return 0;
 }

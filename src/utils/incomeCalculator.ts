@@ -99,6 +99,15 @@ function getTsCredit(stockTs: number): number {
 }
 
 // ─────────────────────────────────────────
+// 6. 기술 타일 수입 (INCOME 타입)
+// ─────────────────────────────────────────
+const TECH_TILE_INCOME: Record<string, Partial<IncomeResult>> = {
+  BASIC_TILE_2: { ore: 1, powerCharge: 1 },
+  BASIC_TILE_3: { credit: 4 },
+  BASIC_TILE_4: { knowledge: 1, credit: 1 },
+};
+
+// ─────────────────────────────────────────
 // 메인: 수입 계산
 // ─────────────────────────────────────────
 export function calcIncome(
@@ -106,6 +115,7 @@ export function calcIncome(
   factionCode: string | null,
   boosterCode: string | null,
   economyTrackOption: string | null,
+  ownedTechTileCodes?: string[],
 ): IncomeResult {
   let result = { ...ZERO };
   const isOptionA = economyTrackOption !== 'OPTION_B';
@@ -120,6 +130,7 @@ export function calcIncome(
     knowledge:   (3 - ps.stockResearchLab)                       // 연구소: 지식 1/개
                  + (2 - ps.stockAcademy) * 2,                    // 아카데미: 지식 2/개
     powerCharge: ps.stockPlanetaryInstitute < 1 ? 4 : 0,         // PI: 파워 순환 4
+    qic:         factionCode === 'IVITS' && ps.stockPlanetaryInstitute < 1 ? 1 : 0, // 하이브 PI: QIC 1
   });
 
   // 3. 기술 트랙 수입
@@ -129,6 +140,15 @@ export function calcIncome(
   // 4. 부스터 수입
   if (boosterCode && BOOSTER_INCOME[boosterCode]) {
     result = add(result, BOOSTER_INCOME[boosterCode]);
+  }
+
+  // 5. 기술 타일 수입 (덮이지 않은 INCOME 타입)
+  if (ownedTechTileCodes) {
+    for (const code of ownedTechTileCodes) {
+      if (TECH_TILE_INCOME[code]) {
+        result = add(result, TECH_TILE_INCOME[code]);
+      }
+    }
   }
 
   return result;

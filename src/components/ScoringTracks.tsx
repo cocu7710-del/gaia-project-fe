@@ -9,9 +9,10 @@ import { PLANET_COLORS } from '../constants/colors';
 interface ScoringTracksProps {
   roomId: string;
   seats: SeatView[];
+  refreshKey?: number;
 }
 
-export default function ScoringTracks({ roomId, seats }: ScoringTracksProps) {
+export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: ScoringTracksProps) {
   const [scoringData, setScoringData] = useState<ScoringTilesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const { currentRound } = useGameStore();
@@ -29,7 +30,7 @@ export default function ScoringTracks({ roomId, seats }: ScoringTracksProps) {
       }
     };
     loadScoringData();
-  }, [roomId]);
+  }, [roomId, refreshKey]);
 
   if (loading || !scoringData) {
     return <div className="game-panel text-xs text-gray-400">로딩...</div>;
@@ -146,7 +147,7 @@ export default function ScoringTracks({ roomId, seats }: ScoringTracksProps) {
       </div>
 
       {/* 최종 점수 타일 (가로 2슬롯) + 플레이어별 개수 */}
-      <div className="flex gap-2 justify-center mt-2 w-[95%] mx-auto">
+      <div className="flex gap-2 justify-center mt-2 w-[50%] mx-auto">
         {finalScorings.map((fs) => {
           const imgSrc = FINAL_SCORING_IMAGE_MAP[fs.tileCode];
           // TODO: API에서 플레이어별 개수 데이터 연결
@@ -175,8 +176,7 @@ export default function ScoringTracks({ roomId, seats }: ScoringTracksProps) {
               <div className="flex flex-col gap-0.5 mt-1">
                 {seats.filter(s => s.playerId).map((seat) => {
                   const color = PLANET_COLORS[seat.homePlanetType] || '#666';
-                  // TODO: 실제 개수 데이터로 교체
-                  const count = 0;
+                  const count = fs.playerProgress?.[seat.playerId!] ?? 0;
                   return (
                     <div
                       key={seat.seatNo}
@@ -187,7 +187,7 @@ export default function ScoringTracks({ roomId, seats }: ScoringTracksProps) {
                         style={{ backgroundColor: color }}
                         title={seat.nickname || `좌석 ${seat.seatNo}`}
                       />
-                      <span className="text-[8px] text-white">{count}</span>
+                      <span className="text-[8px] text-white font-bold">{count}</span>
                     </div>
                   );
                 })}

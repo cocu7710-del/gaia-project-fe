@@ -9,7 +9,8 @@ export type GameActionType =
   | 'BOOSTER_ACTION'
   | 'DEPLOY_GAIAFORMER'
   | 'FLEET_SHIP_ACTION'
-  | 'TECH_TILE_ACTION';
+  | 'TECH_TILE_ACTION'
+  | 'FACTION_ABILITY';
 
 export interface ResourceCost {
   credit?: number;
@@ -139,5 +140,14 @@ export interface TechTileActionAction extends GameAction {
   payload: {
     tileCode: string;
     description: string;
+  };
+}
+
+export interface FactionAbilityAction extends GameAction {
+  type: 'FACTION_ABILITY';
+  payload: {
+    abilityCode: string;
+    terraformDiscount?: number;  // SPACE_GIANTS_TERRAFORM_2: 2
+    navBonus?: number;           // GLEENS_JUMP: 2
   };
 }

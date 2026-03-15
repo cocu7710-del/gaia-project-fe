@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { ResourceCalculator } from '../utils/resourceCalculator';
-import { roomApi } from '../api/client';
 import type { FleetShipAction, ResourceCost } from '../types/turnActions';
-import type { TechTileInfo } from '../api/client';
 
 interface FleetShipActionsProps {
   isMyTurn: boolean;
@@ -71,18 +69,8 @@ const TECH_TRACKS = [
 ];
 
 export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, playerId }: FleetShipActionsProps) {
-  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction, roomId } = useGameStore();
+  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction } = useGameStore();
   const [trackPickingFor, setTrackPickingFor] = useState<string | null>(null); // actionCode
-  const [tilePickingFor, setTilePickingFor] = useState<string | null>(null); // actionCode
-  const [availableTiles, setAvailableTiles] = useState<TechTileInfo[]>([]);
-
-  useEffect(() => {
-    if (tilePickingFor && roomId) {
-      roomApi.getTechTracks(roomId).then(res => {
-        setAvailableTiles(res.data.basicTiles.filter(t => !t.isTaken));
-      }).catch(() => setAvailableTiles([]));
-    }
-  }, [tilePickingFor, roomId]);
 
   if (gamePhase !== 'PLAYING') return null;
 
@@ -111,7 +99,19 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
     }
 
     if (def.needsTile) {
-      setTilePickingFor(actionCode);
+      // trackCode 없이 pending 추가 → TechTracks/FederationTiles에서 타일 선택
+      const action: FleetShipAction = {
+        id: `fsa-${Date.now()}-${Math.random()}`,
+        type: 'FLEET_SHIP_ACTION',
+        timestamp: Date.now(),
+        payload: {
+          fleetName: def.fleetName,
+          actionCode,
+          cost: def.cost,
+          isImmediate: true,
+        },
+      };
+      addPendingAction(action);
       return;
     }
 
@@ -144,27 +144,6 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
       },
     };
     addPendingAction(action);
-  };
-
-  const handleTileSelect = (actionCode: string, tileCode: string) => {
-    const def = FLEET_SHIP_ACTION_DEFS[actionCode];
-    if (!def) return;
-
-    const action: FleetShipAction = {
-      id: `fsa-${Date.now()}-${Math.random()}`,
-      type: 'FLEET_SHIP_ACTION',
-      timestamp: Date.now(),
-      payload: {
-        fleetName: def.fleetName,
-        actionCode,
-        cost: def.cost,
-        isImmediate: true,
-        trackCode: tileCode, // tileCode is passed via trackCode field
-      },
-    };
-    addPendingAction(action);
-    setTilePickingFor(null);
-    setAvailableTiles([]);
   };
 
   const handleTrackSelect = (actionCode: string, trackCode: string) => {
@@ -204,18 +183,17 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
                 const canClick = isMyTurn && !hasPendingAction && !inFleetShipMode && canAfford;
                 const isSelectedMode = fleetShipMode?.actionCode === code;
                 const isPickingTrack = trackPickingFor === code;
-                const isPickingTile = tilePickingFor === code;
 
                 return (
                   <div key={code}>
                     <button
                       onClick={() => handleActionClick(code)}
-                      disabled={!canClick && !isPickingTrack && !isPickingTile}
+                      disabled={!canClick && !isPickingTrack}
                       title={def.description}
                       className={`text-[8px] px-1 py-0.5 rounded border transition ${
                         isSelectedMode
                           ? 'bg-yellow-500 text-black border-yellow-400'
-                          : isPickingTrack || isPickingTile
+                          : isPickingTrack
                             ? 'bg-blue-600 text-white border-blue-400'
                             : !canAfford && isMyTurn
                               ? 'bg-gray-700 text-gray-500 border-gray-600 cursor-not-allowed'
@@ -239,28 +217,6 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
                         ))}
                         <button
                           onClick={() => setTrackPickingFor(null)}
-                          className="text-[8px] px-1 py-0.5 bg-gray-600 hover:bg-gray-500 text-white rounded cursor-pointer"
-                        >
-                          취소
-                        </button>
-                      </div>
-                    )}
-                    {isPickingTile && (
-                      <div className="flex flex-wrap gap-0.5 mt-0.5 max-w-[200px]">
-                        {availableTiles.length === 0 ? (
-                          <span className="text-[8px] text-gray-400">가져갈 수 있는 타일 없음</span>
-                        ) : availableTiles.map(t => (
-                          <button
-                            key={t.tileCode}
-                            onClick={() => handleTileSelect(code, t.tileCode)}
-                            title={t.description}
-                            className="text-[8px] px-1 py-0.5 bg-green-700 hover:bg-green-600 text-white rounded cursor-pointer"
-                          >
-                            {t.tileCode.replace('BASIC_', '')}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => { setTilePickingFor(null); setAvailableTiles([]); }}
                           className="text-[8px] px-1 py-0.5 bg-gray-600 hover:bg-gray-500 text-white rounded cursor-pointer"
                         >
                           취소

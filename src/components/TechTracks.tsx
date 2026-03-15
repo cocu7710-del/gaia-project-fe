@@ -44,13 +44,27 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
   const { turnState, addPendingAction, updatePreviewState, tentativeTechTileCode, tentativeTechTrackCode, setTentativeTechTile, setTechTileData } = useGameStore();
   const [pickingTrackFor, setPickingTrackFor] = useState<string | null>(null);
 
+  // 함대 기술타일 선택 시 (tentativeTechTileCode 있고 trackCode null) → 트랙 클릭 대기
+  useEffect(() => {
+    if (tentativeTechTileCode && tentativeTechTrackCode === null && !pickingTrackFor) {
+      setPickingTrackFor(tentativeTechTileCode);
+    }
+  }, [tentativeTechTileCode, tentativeTechTrackCode]);
+
   const hasPendingTechPickBase = isMyTurn && turnState.pendingActions.some(
-    a => a.type === 'UPGRADE_BUILDING' &&
-      (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY')
+    a => (a.type === 'UPGRADE_BUILDING' &&
+      (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'
+        || (a.payload.toType === 'PLANETARY_INSTITUTE' && a.payload.factionCode === 'SPACE_GIANTS')))
+    || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode)
+    || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_UPGRADE')
   );
 
+  const myPlayerId = useGameStore(s => s.playerId);
   const handleTileClick = useCallback((tile: TechTileInfo) => {
-    if (!hasPendingTechPickBase || tile.isTaken || tentativeTechTileCode) return;
+    // 기본 타일: 본인 보유만 차단, 고급 타일: 누구든 가져가면 차단
+    const isAdv = tile.tileCode.startsWith('ADV_');
+    const isMineOwned = tile.takenByPlayerId === myPlayerId;
+    if (!hasPendingTechPickBase || (isAdv && tile.isTaken) || isMineOwned || tentativeTechTileCode) return;
     if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
       setPickingTrackFor(tile.tileCode);
     } else {
@@ -102,7 +116,41 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
     ? playerStates.map(ps => ps.seatNo === mySeatNo ? myPlayerState as PlayerStateResponse : ps)
     : playerStates;
 
+  // 파이락 다운그레이드: 연구소 선택 후 트랙 선택 대기 여부
+  const firaksPendingTrack = turnState.pendingActions.find(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'FIRAKS_DOWNGRADE'
+      && (a.payload as any).hexQ != null && !(a.payload as any).trackCode
+  );
+
+  // 매드안드로이드: 최저 트랙 선택 대기
+  const bescodsPending = turnState.pendingActions.find(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK'
+      && !(a.payload as any).trackCode
+  );
+  const bescodsLowestLevel = myPlayerState ? Math.min(
+    myPlayerState.techTerraforming ?? 0, myPlayerState.techNavigation ?? 0,
+    myPlayerState.techAi ?? 0, myPlayerState.techGaia ?? 0,
+    myPlayerState.techEconomy ?? 0, myPlayerState.techScience ?? 0,
+  ) : -1;
+
   const handleTrackClick = (trackCode: string) => {
+    // 매드안드로이드: 최저 트랙만 선택 가능
+    if (bescodsPending) {
+      const field = trackToPlayerField[trackCode];
+      if (!field || !myPlayerState) return;
+      const level = (myPlayerState[field] as number) ?? 0;
+      if (level !== bescodsLowestLevel || level >= 5) return;
+      (bescodsPending.payload as any).trackCode = trackCode;
+      setTentativeTechTile('__BESCODS__', trackCode);
+      return;
+    }
+    // 파이락 다운그레이드: 트랙 선택
+    if (firaksPendingTrack) {
+      (firaksPendingTrack.payload as any).trackCode = trackCode;
+      // 프리뷰 강제 갱신을 위해 store 트리거
+      setTentativeTechTile('__FIRAKS__', trackCode);
+      return;
+    }
     // 공용/함대 타일 선택 후 트랙 지정 모드
     if (pickingTrackFor) {
       setTentativeTechTile(pickingTrackFor, trackCode);
@@ -181,7 +229,7 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
           const myLevel = field && myPlayerState ? (myPlayerState[field] as number) : -1;
           const canAdvance = !hasPendingTechPick && !pickingTrackFor && isMyTurn && isPlayingPhase && !hasPendingAction
             && myPlayerState != null && myPlayerState.knowledge >= 4;
-          const isPickingTrack = !!pickingTrackFor;
+          const isPickingTrack = !!pickingTrackFor || !!firaksPendingTrack || !!bescodsPending;
           return (
             <TrackColumn
               key={track.trackCode}
@@ -213,7 +261,8 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
                 const imgSrc = TECH_TILE_IMAGE_MAP[code];
                 const takenColor = getPlayerColorById(tile.takenByPlayerId);
                 const isSelected = pickingTrackFor === tile.tileCode;
-                const canClick = hasPendingTechPick && !tentativeTechTileCode && !pickingTrackFor && !tile.isTaken;
+                const isMineOwned = tile.takenByPlayerId === myPlayerId;
+                const canClick = hasPendingTechPick && !tentativeTechTileCode && !pickingTrackFor && !isMineOwned;
                 return (
                   <div
                     key={tile.tileCode}
@@ -224,7 +273,7 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
                       isSelected
                         ? 'border-green-400 ring-2 ring-green-400 bg-green-900/30'
                         : canClick
-                          ? 'border-yellow-400 cursor-pointer hover:bg-gray-600 ring-1 ring-yellow-400'
+                          ? 'border-green-400 cursor-pointer hover:bg-gray-600 ring-1 ring-green-400'
                           : 'border-gray-600'
                     }`}
                     style={tile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
@@ -237,7 +286,7 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
                       />
                     )}
                     {imgSrc ? (
-                      <img src={imgSrc} alt={code} className="mx-auto h-10 w-auto object-contain" draggable={false} />
+                      <img src={imgSrc} alt={code} className="mx-auto h-[52px] w-auto object-contain" draggable={false} />
                     ) : (
                       <span className="text-[8px]">{code ?? ''}</span>
                     )}
@@ -249,45 +298,6 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
         );
       })()}
 
-      {/* EXPANSION 확장타일 (함대 입장 시에만 획득 가능) */}
-      {(() => {
-        const expansionTiles = basicTiles.filter((t) => t.trackCode === 'EXPANSION');
-        if (expansionTiles.length === 0) return null;
-        return (
-          <div className="mt-1 px-0">
-            <div className="flex gap-1">
-              {expansionTiles.map((tile) => {
-                const code = tile.tileCode;
-                const imgSrc = TECH_TILE_IMAGE_MAP[code];
-                const takenColor = getPlayerColorById(tile.takenByPlayerId);
-                return (
-                  <div
-                    key={tile.tileCode}
-                    className={`flex-1 bg-gray-700 border rounded px-1 py-1 text-center relative ${
-                      tile.isTaken ? 'opacity-40' : ''
-                    } border-gray-600`}
-                    style={tile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
-                    title={`[함대] ${tile.description}`}
-                  >
-                    {takenColor && (
-                      <div
-                        className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full border border-white/80"
-                        style={{ backgroundColor: takenColor }}
-                      />
-                    )}
-                    {imgSrc ? (
-                      <img src={imgSrc} alt={code} className="mx-auto h-10 w-auto object-contain opacity-70" draggable={false} />
-                    ) : (
-                      <span className="text-[8px]">{code ?? ''}</span>
-                    )}
-                    <div className="text-[7px] text-gray-400">함대</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
 
     </div>
   );
@@ -366,7 +376,7 @@ function TrackColumn({
                 <img
                     src={imgSrc}
                     alt={code}
-                    className="mx-auto h-10 w-auto object-contain"
+                    className="mx-auto h-[52px] w-auto object-contain"
                     draggable={false}
                 />
             ) : (
@@ -455,13 +465,15 @@ function TrackColumn({
         const code = basicTile.tileCode;
         const imgSrc = TECH_TILE_IMAGE_MAP[code];
         const takenColor = getPlayerColorById?.(basicTile.takenByPlayerId) ?? null;
-        const canClick = isTileClickable && !basicTile.isTaken;
+        const myPid = useGameStore.getState().playerId;
+        const isMineOwned = basicTile.takenByPlayerId === myPid;
+        const canClick = isTileClickable && !isMineOwned;
 
         return (
             <div
                 onClick={canClick ? (e) => { e.stopPropagation(); onTileClick?.(basicTile); } : undefined}
                 className={`${bgColor} rounded-b px-0.5 py-1 text-center relative ${
-                    canClick ? 'cursor-pointer ring-2 ring-yellow-400 hover:brightness-125' : ''
+                    canClick ? 'cursor-pointer ring-2 ring-green-400 hover:brightness-125' : ''
                 }`}
                 style={basicTile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
                 title={canClick ? '클릭하여 선택' : basicTile.description}
@@ -473,7 +485,7 @@ function TrackColumn({
                 />
               )}
               {imgSrc ? (
-                  <img src={imgSrc} alt={code} className="mx-auto h-10 w-auto object-contain" draggable={false} />
+                  <img src={imgSrc} alt={code} className="mx-auto h-[52px] w-auto object-contain" draggable={false} />
               ) : (
                   <span className="text-[7px]">{code}</span>
               )}
@@ -490,10 +502,10 @@ function getPlanetTypeFromFaction(factionCode: string | null): string {
 
   const factionToPlanet: Record<string, string> = {
     TERRANS: 'TERRA', LANTIDS: 'TERRA',
-    HADSCH_HALLAS: 'DESERT', IVITS: 'DESERT',
+    HADSCH_HALLAS: 'VOLCANIC', IVITS: 'VOLCANIC',
     TAKLONS: 'SWAMP', AMBAS: 'SWAMP',
-    GEODENS: 'VOLCANIC', BAL_TAKS: 'VOLCANIC',
-    GLEENS: 'OXIDE', XENOS: 'OXIDE',
+    GEODENS: 'OXIDE', BAL_TAKS: 'OXIDE',
+    GLEENS: 'DESERT', XENOS: 'DESERT',
     FIRAKS: 'TITANIUM', BESCODS: 'TITANIUM',
     ITARS: 'ICE', NEVLAS: 'ICE',
     MOWEIDS: 'LOST_PLANET', SPACE_GIANTS: 'LOST_PLANET',

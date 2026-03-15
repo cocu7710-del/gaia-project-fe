@@ -9,6 +9,17 @@ export function navLevelToRange(level: number): number {
   return 4; // level 5
 }
 
+/**
+ * 타일 보너스 포함 항법 거리 (BASIC_EXP_TILE_1 보유 시 +1)
+ */
+export function getNavRangeBonus(techTileData: any, playerId: string | null): number {
+  if (!techTileData || !playerId) return 0;
+  const hasTile = techTileData.basicTiles?.some(
+    (t: any) => t.tileCode === 'BASIC_EXP_TILE_1' && t.takenByPlayerId === playerId
+  );
+  return hasTile ? 1 : 0;
+}
+
 /** flat-top axial 헥스 거리 계산 */
 export function hexDistance(q1: number, r1: number, q2: number, r2: number): number {
   const dq = q2 - q1;

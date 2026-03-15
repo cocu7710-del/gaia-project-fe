@@ -152,14 +152,41 @@ export const roomApi = {
 
   // 함대 선박 특수 액션
   fleetShipAction: (roomId: string, playerId: string, actionCode: string,
-                    hexQ?: number, hexR?: number, trackCode?: string) =>
+                    hexQ?: number, hexR?: number, trackCode?: string, techTrackCode?: string) =>
     apiClient.post<FleetShipActionResponse>(`/api/rooms/${roomId}/actions/fleet-ship`, {
-      playerId, actionCode, hexQ, hexR, trackCode,
+      playerId, actionCode, hexQ, hexR, trackCode, techTrackCode,
     }),
 
   // 연방 타일 조회
   getFederationTiles: (roomId: string) =>
     apiClient.get<FederationTilesResponse>(`/api/rooms/${roomId}/federation`),
+
+  // 연방 건물 선택 검증
+  validateFederationBuildings: (roomId: string, playerId: string, buildingHexes: number[][]) =>
+    apiClient.post<{ success: boolean; message?: string; totalPower?: number; minTokens?: number; groups?: number }>(
+      `/api/rooms/${roomId}/federation/validate-buildings`,
+      { playerId, buildingHexes, tokenHexes: [] }
+    ),
+
+  // 연방 배치 조건 체크
+  validateFederation: (roomId: string, playerId: string, tokenHexes: number[][], buildingHexes: number[][] = []) =>
+    apiClient.post<{ gameId: string; success: boolean; message?: string }>(
+      `/api/rooms/${roomId}/federation/validate`,
+      { playerId, buildingHexes, tokenHexes }
+    ),
+
+  // 연방 형성 (타일 선택 후 확정)
+  formFederation: (roomId: string, playerId: string, federationTileCode: string, tokenHexes: number[][], buildingHexes: number[][] = []) =>
+    apiClient.post<{ gameId: string; success: boolean; message?: string; federationTileCode?: string; nextTurnSeatNo?: number }>(
+      `/api/rooms/${roomId}/federation/form`,
+      { playerId, federationTileCode, buildingHexes, tokenHexes }
+    ),
+
+  // 연방 그룹 목록 조회
+  getFederationGroups: (roomId: string) =>
+    apiClient.get<Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][] }>>(
+      `/api/rooms/${roomId}/federation/groups`
+    ),
 
   // 파워 리치 결정 (수락/거절)
   decideLeech: (roomId: string, leechId: string, playerId: string, accept: boolean, taklonsChoice?: string) =>
@@ -171,6 +198,21 @@ export const roomApi = {
   // 현재 대기 중인 리치 오퍼 조회 (페이지 복구용)
   getPendingLeeches: (roomId: string) =>
     apiClient.get<LeechOffer[]>(`/api/rooms/${roomId}/leech/pending`),
+
+  // 팅커로이드 라운드 시작 액션 타일 선택
+  tinkeroidsActionChoice: (roomId: string, playerId: string, actionCode: string) =>
+    apiClient.post<{ gameId: string; success: boolean; message?: string }>(
+      `/api/rooms/${roomId}/actions/tinkeroids-action-choice`,
+      { playerId, actionCode }
+    ),
+
+  // 아이타 라운드 종료 가이아→기술타일 선택
+  itarsGaiaChoice: (roomId: string, playerId: string, action: 'TAKE_TILE' | 'SKIP',
+                    tileCode?: string, techTrackCode?: string) =>
+    apiClient.post<{ gameId: string; success: boolean; message?: string; abilityCode?: string }>(
+      `/api/rooms/${roomId}/actions/itars-gaia-choice`,
+      { playerId, action, tileCode, techTrackCode }
+    ),
 };
 
 // 맵 관련 API
@@ -178,6 +220,10 @@ export const mapApi = {
   // 전체 헥스 조회
   getHexes: (roomId: string) =>
     apiClient.get<GameHex[]>(`/api/rooms/${roomId}/map/hexes`),
+
+  // 섹터 60도 회전 (캐릭터 선택 전에만 가능)
+  rotateSector: (roomId: string, positionNo: number) =>
+    apiClient.post<GameHex[]>(`/api/rooms/${roomId}/map/sectors/${positionNo}/rotate`),
 };
 
 // 건물 관련 API
@@ -378,6 +424,7 @@ interface GameBuilding {
   hexQ: number;
   hexR: number;
   buildingType: string;
+  isLantidsMine?: boolean;
 }
 
 interface PlaceInitialMineResponse {
@@ -422,6 +469,7 @@ interface PlayerStateResponse {
   stockAcademy: number;
   stockGaiaformer: number;
   gaiaPower: number;
+  brainstoneBowl: number | null;
   techTerraforming: number;
   techNavigation: number;
   techAi: number;
@@ -490,6 +538,7 @@ interface FinalScoringInfo {
   position: number;
   tileCode: string;
   description: string;
+  playerProgress?: Record<string, number>;  // playerId → 달성 개수
 }
 
 interface FederationTilesResponse {

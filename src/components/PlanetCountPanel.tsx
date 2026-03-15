@@ -35,6 +35,7 @@ export default function PlanetCountPanel({ seats }: Props) {
   const countMap = useMemo(() => {
     const result = new Map<number, Map<string, number>>();
     for (const b of buildings) {
+      if (b.isLantidsMine) continue; // 란티다 기생 광산은 행성 종류에 포함하지 않음
       const planetType = planetByCoord.get(`${b.hexQ},${b.hexR}`);
       if (!planetType || planetType === 'TRANSDIM' || planetType === 'ASTEROIDS' || planetType === 'LOST_PLANET') continue;
       const seat = seatByPlayerId.get(b.playerId);

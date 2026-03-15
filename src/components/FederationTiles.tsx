@@ -180,10 +180,10 @@ function getPlanetTypeFromFaction(factionCode: string | null): string {
   if (!factionCode) return 'TERRA';
   const map: Record<string, string> = {
     TERRANS: 'TERRA', LANTIDS: 'TERRA',
-    HADSCH_HALLAS: 'DESERT', IVITS: 'DESERT',
+    HADSCH_HALLAS: 'VOLCANIC', IVITS: 'VOLCANIC',
     TAKLONS: 'SWAMP', AMBAS: 'SWAMP',
-    GEODENS: 'VOLCANIC', BAL_TAKS: 'VOLCANIC',
-    GLEENS: 'OXIDE', XENOS: 'OXIDE',
+    GEODENS: 'OXIDE', BAL_TAKS: 'OXIDE',
+    GLEENS: 'DESERT', XENOS: 'DESERT',
     FIRAKS: 'TITANIUM', BESCODS: 'TITANIUM',
     ITARS: 'ICE', NEVLAS: 'ICE',
     MOWEIDS: 'LOST_PLANET', SPACE_GIANTS: 'LOST_PLANET',
@@ -265,12 +265,12 @@ const DEFAULT_SPACESHIPS: Spaceship[] = [
 export default function FederationTiles({ roomId, playerStates = [] }: FederationTilesProps) {
   const [spaceships, setSpaceships] = useState<Spaceship[]>(DEFAULT_SPACESHIPS);
   const [trackPickingFor, setTrackPickingFor] = useState<string | null>(null);
-  const [tilePickingFor, setTilePickingFor] = useState<string | null>(null);
-  const [availableTiles, setAvailableTiles] = useState<TechTileInfo[]>([]);
   const {
     fleetProbes, turnState, playerId: myPlayerId, setFleetProbes,
     usedPowerActionCodes, gamePhase, currentTurnSeatNo, mySeatNo, addPendingAction,
     fleetShipMode, setFleetShipMode,
+    tentativeTechTileCode, setTentativeTechTile,
+    federationMode, setFederationMode,
   } = useGameStore();
 
   const isMyTurn = gamePhase === 'PLAYING' && mySeatNo !== null && mySeatNo === currentTurnSeatNo;
@@ -374,20 +374,30 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
     loadData();
   }, [roomId]);
 
-  // 타일 선택 모드 진입 시 가능한 타일 로드
-  useEffect(() => {
-    if (tilePickingFor && roomId) {
-      roomApi.getTechTracks(roomId).then(res => {
-        setAvailableTiles(res.data.basicTiles.filter((t: TechTileInfo) => !t.isTaken));
-      }).catch(() => setAvailableTiles([]));
-    }
-  }, [tilePickingFor, roomId]);
+  // 기술 타일 선택 모드 활성화 여부 (연구소/아카데미/리벨리온 3QIC)
+  const isTechPickActive = isMyTurn && !tentativeTechTileCode && turnState.pendingActions.some(
+    a => (a.type === 'UPGRADE_BUILDING' && (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'))
+      || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode)
+  );
 
-  // pending 중인 함대 액션 코드 (old POWER_ACTION 방식 + 새 FLEET_SHIP_ACTION 방식 모두 추적)
+  // pending 중인 파워 액션 + 함대 액션 코드 추적
   const usedInPending = turnState.pendingActions
     .filter(a => a.type === 'POWER_ACTION')
     .map(a => a.payload.powerActionCode as string);
-  const usedCodes = new Set([...usedPowerActionCodes, ...usedInPending]);
+  const usedFleetInPending = turnState.pendingActions
+    .filter(a => a.type === 'FLEET_SHIP_ACTION')
+    .map(a => {
+      const actionCode = (a.payload as any).actionCode as string;
+      // BE actionCode → FE FLEET_ 코드 매핑
+      const map: Record<string, string> = {
+        TF_MARS_VP: 'FLEET_TF_MARS_1', TF_MARS_GAIAFORM: 'FLEET_TF_MARS_2', TF_MARS_TERRAFORM: 'FLEET_TF_MARS_3',
+        ECLIPSE_VP: 'FLEET_ECLIPSE_1', ECLIPSE_TECH: 'FLEET_ECLIPSE_2', ECLIPSE_MINE: 'FLEET_ECLIPSE_3',
+        REBELLION_TECH: 'FLEET_REBELLION_1', REBELLION_UPGRADE: 'FLEET_REBELLION_2', REBELLION_CONVERT: 'FLEET_REBELLION_3',
+        TWILIGHT_FED: 'FLEET_TWILIGHT_1', TWILIGHT_UPGRADE: 'FLEET_TWILIGHT_2', TWILIGHT_NAV: 'FLEET_TWILIGHT_3',
+      };
+      return map[actionCode] ?? actionCode;
+    });
+  const usedCodes = new Set([...usedPowerActionCodes, ...usedInPending, ...usedFleetInPending]);
   const hasPendingAction = turnState.pendingActions.length > 0;
 
   const currentPlayerState = turnState.previewPlayerState ?? null;
@@ -406,7 +416,19 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
     }
 
     if (meta.needsTile) {
-      setTilePickingFor(config.code);
+      // trackCode 없이 pending 추가 → TechTracks/함대 보드에서 타일 선택
+      const action: FleetShipAction = {
+        id: `fsa-${Date.now()}-${Math.random()}`,
+        type: 'FLEET_SHIP_ACTION',
+        timestamp: Date.now(),
+        payload: {
+          fleetName: meta.fleetName,
+          actionCode: meta.fshCode,
+          cost: config.cost,
+          isImmediate: true,
+        },
+      };
+      addPendingAction(action);
       return;
     }
 
@@ -455,19 +477,26 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
     setTrackPickingFor(null);
   };
 
-  const handleTileSelect = (actionCode: string, tileCode: string) => {
-    const meta = FLEET_ACTION_FSA_META[actionCode];
-    const config = Object.values(FLEET_LAYOUTS).flatMap(l => l.actions).find(a => a.code === actionCode);
-    if (!meta || !config) return;
-    const action: FleetShipAction = {
-      id: `fsa-${Date.now()}-${Math.random()}`,
-      type: 'FLEET_SHIP_ACTION',
-      timestamp: Date.now(),
-      payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true, trackCode: tileCode },
-    };
-    addPendingAction(action);
-    setTilePickingFor(null);
-    setAvailableTiles([]);
+  // 우주선 연방 토큰 클릭 → FederationSupply의 handleSelectTile과 동일
+  const handleSelectFedTile = async (tileCode: string) => {
+    if (!federationMode || !myPlayerId) return;
+    try {
+      const res = await roomApi.formFederation(roomId, myPlayerId, tileCode, federationMode.placedTokens, federationMode.selectedBuildings);
+      if (!res.data.success) {
+        alert(res.data.message ?? '연방 형성 실패');
+        return;
+      }
+      setFederationMode(null);
+    } catch (e: any) {
+      alert(e?.response?.data?.message ?? '연방 형성 오류');
+    }
+  };
+
+  // 함대 기술 타일 클릭 핸들러 → TechTracks의 트랙 클릭으로 트랙 지정
+  const handleFleetTechTileClick = (tileCode: string) => {
+    if (!isTechPickActive) return;
+    // tileCode만 설정, trackCode는 null → TechTracks에서 트랙 클릭 대기
+    setTentativeTechTile(tileCode, null);
   };
 
   return (
@@ -484,6 +513,10 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
             usedCodes={usedCodes}
             currentPlayerState={currentPlayerState as any}
             onActionClick={(config) => handleActionClick(ship.fleetCode, config)}
+            isTechTileClickable={isTechPickActive && hasEntered && !!ship.techTile && !ship.techTile.isTaken}
+            onTechTileClick={() => ship.techTile && handleFleetTechTileClick(ship.techTile.tileCode)}
+            isFedTokenClickable={federationMode?.phase === 'SELECT_TILE' && hasEntered && !!ship.federationToken}
+            onFedTokenClick={() => ship.federationToken && handleSelectFedTile(ship.federationToken)}
           />
           );
         })}
@@ -526,32 +559,6 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
         </div>
       )}
 
-      {/* 기술 타일 선택 (REBELLION_TECH) */}
-      {tilePickingFor && (
-        <div className="mt-1.5 p-1.5 bg-emerald-900/50 border border-emerald-600/30 rounded-lg text-[9px]">
-          <div className="text-emerald-300 font-semibold mb-1">기술 타일 선택:</div>
-          <div className="flex flex-wrap gap-1">
-            {availableTiles.length === 0 ? (
-              <span className="text-gray-400">가져갈 수 있는 타일 없음</span>
-            ) : availableTiles.map(t => (
-              <button
-                key={t.tileCode}
-                onClick={() => handleTileSelect(tilePickingFor, t.tileCode)}
-                title={t.description}
-                className="px-1.5 py-0.5 bg-emerald-700/70 hover:bg-emerald-600/70 text-white rounded-md cursor-pointer"
-              >
-                {t.tileCode.replace('BASIC_', '')}
-              </button>
-            ))}
-            <button
-              onClick={() => { setTilePickingFor(null); setAvailableTiles([]); }}
-              className="px-1.5 py-0.5 bg-gray-600/60 hover:bg-gray-500/60 text-white rounded-md cursor-pointer"
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -564,9 +571,13 @@ interface SpaceshipCardProps {
   usedCodes: Set<string>;
   currentPlayerState: any | null;
   onActionClick: (config: ActionConfig) => void;
+  isTechTileClickable?: boolean;
+  onTechTileClick?: () => void;
+  isFedTokenClickable?: boolean;
+  onFedTokenClick?: () => void;
 }
 
-function SpaceshipCard({ ship, hasEntered, canAct, usedCodes, currentPlayerState, onActionClick }: SpaceshipCardProps) {
+function SpaceshipCard({ ship, hasEntered, canAct, usedCodes, currentPlayerState, onActionClick, isTechTileClickable, onTechTileClick, isFedTokenClickable, onFedTokenClick }: SpaceshipCardProps) {
   const bgImage = FLEET_IMAGES[ship.fleetCode];
   const layout = FLEET_LAYOUTS[ship.fleetCode];
 
@@ -588,9 +599,11 @@ function SpaceshipCard({ ship, hasEntered, canAct, usedCodes, currentPlayerState
           currentPlayerState={currentPlayerState}
           onActionClick={onActionClick}
         />
-        <FederationTokenSlot tokenCode={ship.federationToken} position={layout.federationToken} />
+        <FederationTokenSlot tokenCode={ship.federationToken} position={layout.federationToken}
+          isClickable={isFedTokenClickable} onClick={onFedTokenClick} />
         {layout.techTile && (
-          <TechTileSlot techTile={ship.techTile} position={layout.techTile} />
+          <TechTileSlot techTile={ship.techTile} position={layout.techTile}
+            isClickable={isTechTileClickable} onClick={onTechTileClick} />
         )}
         {layout.artifacts && (
           <ArtifactSlots artifacts={ship.artifacts} positions={layout.artifacts} />
@@ -692,14 +705,14 @@ function ActionButtons({ layout, hasEntered, canAct, usedCodes, currentPlayerSta
               config.description
             }
           >
-            {!hasEntered && (
-              <div className="w-full h-full flex items-center justify-center">
-                <span className="text-gray-500 font-bold text-sm">🔒</span>
-              </div>
-            )}
-            {hasEntered && isUsed && (
+            {isUsed && (
               <div className="w-full h-full flex items-center justify-center">
                 <img src={closeImg} className="w-12 h-12 object-contain" draggable={false} />
+              </div>
+            )}
+            {!hasEntered && !isUsed && (
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-gray-500 font-bold text-sm">🔒</span>
               </div>
             )}
           </button>
@@ -713,14 +726,17 @@ function ActionButtons({ layout, hasEntered, canAct, usedCodes, currentPlayerSta
 interface TechTileSlotProps {
   techTile: TechTileInfo | null;
   position: SlotPosition;
+  isClickable?: boolean;
+  onClick?: () => void;
 }
 
-function TechTileSlot({ techTile, position }: TechTileSlotProps) {
+function TechTileSlot({ techTile, position, isClickable, onClick }: TechTileSlotProps) {
   const imgSrc = techTile ? TECH_TILE_IMAGE_MAP[techTile.tileCode] : null;
 
   return (
     <div
-      className="absolute flex items-center justify-center"
+      className={`absolute flex items-center justify-center ${isClickable ? 'cursor-pointer ring-2 ring-green-400 hover:brightness-125 z-10' : ''}`}
+      onClick={isClickable ? onClick : undefined}
       style={{
         left: `${position.left}%`,
         top: `${position.top}%`,
@@ -731,7 +747,7 @@ function TechTileSlot({ techTile, position }: TechTileSlotProps) {
     >
       {techTile ? (
         <div
-          className={`w-full h-full rounded overflow-hidden ${techTile.isTaken ? 'opacity-50' : ''}`}
+          className="w-full h-full rounded overflow-hidden"
           title={techTile.description}
         >
           {imgSrc ? (
@@ -760,14 +776,17 @@ function TechTileSlot({ techTile, position }: TechTileSlotProps) {
 interface FederationTokenSlotProps {
   tokenCode: string | null;
   position: SlotPosition;
+  isClickable?: boolean;
+  onClick?: () => void;
 }
 
-function FederationTokenSlot({ tokenCode, position }: FederationTokenSlotProps) {
+function FederationTokenSlot({ tokenCode, position, isClickable, onClick }: FederationTokenSlotProps) {
   const imgSrc = tokenCode ? FEDERATION_TOKEN_IMAGE_MAP[tokenCode] : null;
 
   return (
     <div
-      className="absolute flex items-center justify-center"
+      className={`absolute flex items-center justify-center ${isClickable ? 'cursor-pointer ring-2 ring-orange-400 hover:brightness-125 z-10' : ''}`}
+      onClick={isClickable ? onClick : undefined}
       style={{
         left: `${position.left}%`,
         top: `${position.top}%`,

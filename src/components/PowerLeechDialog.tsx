@@ -12,15 +12,19 @@ export const PowerLeechDialog: React.FC<Props> = ({ roomId, myPlayerId }) => {
   const [isDeciding, setIsDeciding] = React.useState(false);
   const [taklonsChoice, setTaklonsChoice] = React.useState<'TOKEN_FIRST' | 'CHARGE_FIRST'>('CHARGE_FIRST');
 
-  if (!leechBatch || leechBatch.currentDeciderId !== myPlayerId) return null;
+  // 동시 결정: 내가 결정 대상 목록에 있는지 확인
+  const isMyDecision = leechBatch?.deciderIds?.includes(myPlayerId)
+    ?? leechBatch?.currentDeciderId === myPlayerId;
+  if (!leechBatch || !isMyDecision) return null;
 
-  const currentOffer = leechBatch.offers.find(o => o.id === leechBatch.currentLeechId);
+  // 내 offer 찾기
+  const currentOffer = leechBatch.offers.find(o => o.receivePlayerId === myPlayerId);
   if (!currentOffer) return null;
 
   const handleDecide = async (accept: boolean) => {
     setIsDeciding(true);
     try {
-      await roomApi.decideLeech(roomId, leechBatch.currentLeechId!, myPlayerId, accept,
+      await roomApi.decideLeech(roomId, currentOffer.id, myPlayerId, accept,
         currentOffer.isTaklons && accept ? taklonsChoice : undefined);
     } finally {
       setIsDeciding(false);
