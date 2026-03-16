@@ -61,6 +61,11 @@ export default function LobbyPage() {
     clearLeechBatch,
     setItarsGaiaChoice,
     setTinkeroidsActionChoice,
+    itarsGaiaChoice,
+    tinkeroidsActionChoice,
+    setTentativeTechTile,
+    selectingPassBooster,
+    setSelectingPassBooster,
   } = useGameStore();
 
   const [loading, setLoading] = useState(true);
@@ -70,7 +75,7 @@ export default function LobbyPage() {
   const [boosters, setBoosters] = useState<BoosterOfferResponse[]>([]);
   const [boosterPickSeatNo, setBoosterPickSeatNo] = useState<number>(4); // 4→3→2→1
   const [playerStates, setPlayerStates] = useState<PlayerStateResponse[]>([]);
-  const [selectingPassBooster, setSelectingPassBooster] = useState(false);
+
   const [techRefreshKey, setTechRefreshKey] = useState(0);
   const [deferredAction, setDeferredAction] = React.useState<{ type: string; terraformDiscount: number } | null>(null);
 
@@ -188,14 +193,27 @@ export default function LobbyPage() {
 
         case 'PLAYER_PASSED':
           if (roomId) {
+            const allPassedFlag = event.payload.allPassed as boolean;
+            // seatNo가 payload에 있으면 사용, 없으면 playerId로 store seats에서 찾기
+            const currentSeats = useGameStore.getState().seats;
+            const passedSeatNo = (event.payload.seatNo as number | undefined)
+              ?? currentSeats.find(s => s.playerId === event.playerId)?.seatNo;
+            if (passedSeatNo != null) useGameStore.getState().addPassedSeatNo(passedSeatNo);
             await loadBoosters();
             const playerRes5 = await roomApi.getPlayerStates(roomId);
             setPlayerStates(playerRes5.data);
+            if (allPassedFlag) {
+              useGameStore.getState().clearPassedSeatNos();
+              // 라운드 종료 시 전체 상태 갱신 (gamePhase, currentTurnSeatNo 반영)
+              const stateResPass = await roomApi.getPublicState(roomId);
+              setPublicState(stateResPass.data);
+            }
           }
           break;
 
         case 'ROUND_STARTED':
           clearPendingActions();
+          useGameStore.getState().clearPassedSeatNos();
           setItarsGaiaChoice(null);
           setTinkeroidsActionChoice(null);
           if (roomId) {
@@ -226,14 +244,17 @@ export default function LobbyPage() {
 
         case 'ITARS_GAIA_CHOICE': {
           const itarsPayload = event.payload;
+          setTentativeTechTile(null, null);
           setItarsGaiaChoice({
             itarsPlayerId: itarsPayload.itarsPlayerId as string,
             availableChoices: itarsPayload.availableChoices as number,
+            tilePicking: false,
           });
           if (roomId) {
             const prItars = await roomApi.getPlayerStates(roomId);
             setPlayerStates(prItars.data);
           }
+          setTechRefreshKey(k => k + 1);
           break;
         }
 
@@ -310,6 +331,8 @@ export default function LobbyPage() {
   });
 
   // WebSocket 연결 (roomId만 의존 - 핸들러 변경으로 재연결 안 됨)
+  // 이벤트 직렬화: 이전 이벤트 처리 완료 후 다음 이벤트 처리
+  const eventQueueRef = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     if (!roomId) return;
 
@@ -318,7 +341,9 @@ export default function LobbyPage() {
     });
 
     const removeHandler = gameSocket.addHandler((event: GameEvent) => {
-      eventHandlerRef.current(event);
+      eventQueueRef.current = eventQueueRef.current
+        .then(() => eventHandlerRef.current(event))
+        .catch(err => console.error('WS event handler error:', err));
     });
 
     return () => {
@@ -393,6 +418,27 @@ export default function LobbyPage() {
         await loadFleetProbes();
         // 연방 그룹 로드
         try { const fedRes = await roomApi.getFederationGroups(roomId); setFederationGroups(fedRes.data); } catch {}
+
+        // 7. 특수 페이즈 복원 (새로고침/재접속 시)
+        const phase = stateRes.data.gamePhase;
+        const specialPlayerId = stateRes.data.pendingSpecialPlayerId;
+        const specialData = stateRes.data.pendingSpecialData;
+        if (phase === 'ITARS_GAIA_PHASE' && specialPlayerId && specialData) {
+          setItarsGaiaChoice({
+            itarsPlayerId: specialPlayerId,
+            availableChoices: specialData.availableChoices as number,
+            tilePicking: false,
+          });
+        } else if (phase === 'TINKEROIDS_ACTION_PHASE' && specialPlayerId) {
+          // 팅커로이드는 BE에서 availableActions를 별도로 받아야 하지만,
+          // 현재 구조상 WS 이벤트로만 전달됨 — 최소한 다이얼로그 표시를 위해 빈 액션으로 세팅
+          // (실제 선택 시 BE에서 검증하므로 안전)
+          setTinkeroidsActionChoice({
+            tinkeroidsPlayerId: specialPlayerId,
+            availableActions: (specialData?.availableActions as string[]) ?? [],
+            currentRound: stateRes.data.currentRound ?? 1,
+          });
+        }
       } catch (err: any) {
         setError(err.response?.data?.message || '데이터 로드 실패');
       } finally {
@@ -492,6 +538,13 @@ export default function LobbyPage() {
     return false;
   }, [mySeatNo, gamePhase, nextSetupSeatNo, boosterPickSeatNo, currentTurnSeatNo, leechBatch, turnState.isConfirming]);
 
+  // 특수 페이즈 (ITARS_GAIA_PHASE / TINKEROIDS_ACTION_PHASE) 대상 플레이어 좌석
+  const specialPhaseSeatNo = useMemo(() => {
+    const specialPlayerId = itarsGaiaChoice?.itarsPlayerId ?? tinkeroidsActionChoice?.tinkeroidsPlayerId ?? null;
+    if (!specialPlayerId) return null;
+    return seats.find(s => s.playerId === specialPlayerId)?.seatNo ?? null;
+  }, [itarsGaiaChoice, tinkeroidsActionChoice, seats]);
+
   // 파워 소각 - 로컬에서만 추적, 턴 확정 시 백엔드 반영
   const handleBurnPower = () => {
     incrementBurnPower();
@@ -519,7 +572,15 @@ export default function LobbyPage() {
 
   // 턴 확정 핸들러
   const handleConfirmTurn = async () => {
-    if (!roomId || !playerId || turnState.pendingActions.length === 0) {
+    if (!roomId || !playerId) return;
+
+    // 패스 부스터 선택 후 확정
+    if (selectingPassBooster && turnState.tentativeBooster) {
+      await handlePassWithBooster(turnState.tentativeBooster);
+      return;
+    }
+
+    if (turnState.pendingActions.length === 0) {
       return;
     }
     // 부스터/파워 액션이 있는데 후속 액션(광산/우주선)이 아직 없는 경우 방지
@@ -576,9 +637,13 @@ export default function LobbyPage() {
         const gaiaformerAction = actions.find(a => a.type === 'DEPLOY_GAIAFORMER') as DeployGaiaformerAction | undefined;
         const factionAbilityAction = actions.find(a => a.type === 'FACTION_ABILITY');
 
+        // QIC 아카데미 액션 (프리 액션: 턴 소모 없음)
+        if (factionAbilityAction?.payload?.abilityCode === 'QIC_ACADEMY_ACTION') {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'QIC_ACADEMY_ACTION');
+          if (!res.data.success) { setConfirmError(res.data.message || 'QIC 아카데미 액션 실패'); return; }
+
         // 하이브 우주정거장: hexQ/hexR가 payload에 있으면 API 호출
-        const ivitsStation = factionAbilityAction?.payload?.abilityCode === 'IVITS_PLACE_STATION' && factionAbilityAction?.payload?.hexQ != null;
-        if (ivitsStation) {
+        } else if (factionAbilityAction?.payload?.abilityCode === 'IVITS_PLACE_STATION' && factionAbilityAction?.payload?.hexQ != null) {
           const res = await roomApi.useFactionAbility(roomId, playerId, 'IVITS_PLACE_STATION',
             undefined, factionAbilityAction!.payload.hexQ, factionAbilityAction!.payload.hexR);
           if (!res.data.success) { setConfirmError(res.data.message || '우주정거장 배치 실패'); return; }
@@ -589,11 +654,27 @@ export default function LobbyPage() {
             factionAbilityAction.payload.trackCode, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
           if (!res.data.success) { setConfirmError(res.data.message || '파이락 다운그레이드 실패'); return; }
 
-        // 매드안드로이드: 최저 트랙 선택 후 BE 호출
-        } else if (factionAbilityAction?.payload?.abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK' && factionAbilityAction.payload.trackCode) {
+        // 매드안드로이드: 최저 트랙 전진 (trackCode 유무 모두 지원)
+        } else if (factionAbilityAction?.payload?.abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK') {
           const res = await roomApi.useFactionAbility(roomId, playerId, 'BESCODS_ADVANCE_LOWEST_TRACK',
             factionAbilityAction.payload.trackCode);
           if (!res.data.success) { setConfirmError(res.data.message || '매드안드로이드 능력 실패'); return; }
+
+        // 글린 PI: 연방 토큰 획득
+        } else if (factionAbilityAction?.payload?.abilityCode === 'GLEENS_FEDERATION_TOKEN') {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'GLEENS_FEDERATION_TOKEN');
+          if (!res.data.success) { setConfirmError(res.data.message || '글린 연방 토큰 실패'); return; }
+
+        // 엠바스 PI: 광산↔의회 교환
+        } else if (factionAbilityAction?.payload?.abilityCode === 'AMBAS_SWAP' && factionAbilityAction.payload.hexQ != null) {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'AMBAS_SWAP',
+            undefined, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
+          if (!res.data.success) { setConfirmError(res.data.message || '엠바스 교환 실패'); return; }
+
+        // 팅커로이드: 즉시 효과 액션 사용
+        } else if (factionAbilityAction?.payload?.abilityCode === 'TINKEROIDS_USE_ACTION') {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'TINKEROIDS_USE_ACTION');
+          if (!res.data.success) { setConfirmError(res.data.message || '팅커로이드 액션 실패'); return; }
 
         // 종족 능력(2삽/점프) + 후속 광산/우주선/가이아포머: 확정 시 BE 능력 선언 → 후속 행동
         } else if (factionAbilityAction && mineAction) {
@@ -687,7 +768,8 @@ export default function LobbyPage() {
           const res = await roomApi.upgradeBuilding(
             roomId, playerId, firstAction.payload.hexQ, firstAction.payload.hexR, firstAction.payload.toType,
             tentativeTechTileCode ?? undefined,
-            tentativeTechTrackCode ?? undefined
+            tentativeTechTrackCode ?? undefined,
+            firstAction.payload.academyType ?? undefined
           );
           if (!res.data.success) { setConfirmError(res.data.message || '건물 업그레이드 실패'); return; }
 
@@ -730,6 +812,10 @@ export default function LobbyPage() {
         } else if (firstAction.type === 'TECH_TILE_ACTION') {
           const res = await roomApi.useTechTileAction(roomId, playerId, firstAction.payload.tileCode);
           if (!res.data.success) { setConfirmError(res.data.message || '기술 타일 액션 실패'); return; }
+
+        } else if (firstAction.type === 'FORM_FEDERATION') {
+          const res = await roomApi.formFederation(roomId, playerId, firstAction.payload.tileCode, firstAction.payload.placedTokens, firstAction.payload.selectedBuildings);
+          if (!res.data.success) { setConfirmError(res.data.message || '연방 형성 실패'); return; }
 
         } else {
           // 기타 액션: confirmAction으로 기록
@@ -787,6 +873,8 @@ export default function LobbyPage() {
       if (res.data.success) {
         setSelectingPassBooster(false);
         clearPendingActions();
+        // 내 패스 순서 기록
+        if (mySeatNo != null) useGameStore.getState().addPassedSeatNo(mySeatNo);
         // WebSocket 이벤트(TURN_CHANGED/ROUND_STARTED)로 갱신
       } else {
         setConfirmError(res.data.message || '패스 실패');
@@ -817,11 +905,11 @@ export default function LobbyPage() {
   const currentPlayerId = playerId || urlPlayerId;
 
   return (
-    <div className="min-h-screen p-3">
+    <div className="h-screen p-1.5 overflow-hidden">
       {/* 상단 정보 */}
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-700/40">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold tracking-tight text-white/90">Gaia Project</h1>
+      <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-700/40">
+        <div className="flex items-center gap-2">
+          <h1 className="text-sm font-bold tracking-tight text-white/90">Gaia Project</h1>
           <div className="flex items-center gap-2 text-xs text-gray-400">
             <span>{nickname}</span>
             <span className="text-gray-600">|</span>
@@ -847,10 +935,10 @@ export default function LobbyPage() {
         <GameInfo />
       </div>
 
-      {/* 메인 컨텐츠 - 3열 구조 */}
-      <div className="flex gap-3" style={{ height: 'calc(100vh - 80px)' }}>
-        {/* 좌측: 캐릭 상태 (전체 높이) - 20% */}
-        <div className="w-[20%] flex flex-col gap-2">
+      {/* 메인 컨텐츠 - 3열 구조, 뷰포트에 꽉 맞춤 */}
+      <div className="flex gap-1.5" style={{ height: 'calc(100vh - 36px)' }}>
+        {/* 좌측: 플레이어 보드 + 확정 + 지식트랙 + 점수 */}
+        <div className="w-[25%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
           <SeatSelector
             seats={seats}
             mySeatNo={mySeatNo}
@@ -862,8 +950,11 @@ export default function LobbyPage() {
                 ? boosterPickSeatNo
                 : gamePhase === 'PLAYING'
                 ? currentTurnSeatNo
+                : (gamePhase === 'ITARS_GAIA_PHASE' || gamePhase === 'TINKEROIDS_ACTION_PHASE')
+                ? specialPhaseSeatNo
                 : null
             }
+            specialPhaseSeatNo={specialPhaseSeatNo}
             playerStates={playerStates}
             boosters={boosters}
             onClaimSeat={handleClaimSeat}
@@ -882,68 +973,61 @@ export default function LobbyPage() {
           {status === 'READY' && seats.every((s) => s.playerId) && !gamePhase && (
             <button
               onClick={handleStartGame}
-              className="bg-emerald-600/80 hover:bg-emerald-500/80 text-white py-2 px-4 rounded-xl transition font-semibold shadow-lg shadow-emerald-900/30"
+              className="bg-emerald-600/80 hover:bg-emerald-500/80 text-white py-1.5 px-3 rounded-xl transition font-semibold shadow-lg shadow-emerald-900/30 text-sm"
             >
               게임 시작
             </button>
           )}
 
-          {/* Turn Confirmation Panel */}
-          <TurnConfirmationPanel
+          {/* 지식 트랙 */}
+          <TechTracks
+            roomId={roomId!}
+            playerStates={playerStates}
             isMyTurn={isMyTurn}
+            mySeatNo={mySeatNo}
             gamePhase={gamePhase}
-            pendingActions={turnState.pendingActions}
-            burnPowerCount={turnState.burnPowerCount}
-            previewResources={turnState.previewPlayerState}
-            originalResources={turnState.originalPlayerState}
-            onConfirm={handleConfirmTurn}
-            onRollback={handleRollbackTurn}
-            onPassTurn={handlePassTurn}
-            isConfirming={turnState.isConfirming}
-            error={turnState.confirmError}
-            selectingPassBooster={selectingPassBooster}
+            refreshKey={techRefreshKey}
           />
 
-          {/* 최종 점수 */}
+          {/* 라운드 & 최종 점수 */}
           <ScoringTracks roomId={roomId!} seats={seats} refreshKey={techRefreshKey} />
         </div>
 
-        {/* 중앙: 맵 (상단) + 지식트랙 (하단) - 55% */}
-        <div className="w-[55%] flex flex-col gap-3">
-          {/* 맵 */}
-          <div className="flex-1">
-            <HexMap roomId={roomId!} playerStates={playerStates} seats={seats} />
-          </div>
-          {/* 지식 트랙 */}
-          <div style={{ height: '35%' }}>
-            <TechTracks
-              roomId={roomId!}
-              playerStates={playerStates}
+        {/* 중앙: 맵 */}
+        <div className="w-[50%] min-h-0 min-w-0 overflow-hidden pb-2 relative">
+          <HexMap roomId={roomId!} playerStates={playerStates} seats={seats} />
+          {/* 초기화/확정/패스 - 맵 좌측 하단 오버레이 */}
+          <div className="absolute bottom-3 left-2 z-20" style={{ width: '100px' }}>
+            <TurnConfirmationPanel
               isMyTurn={isMyTurn}
-              mySeatNo={mySeatNo}
               gamePhase={gamePhase}
-              refreshKey={techRefreshKey}
+              pendingActions={turnState.pendingActions}
+              burnPowerCount={turnState.burnPowerCount}
+              previewResources={turnState.previewPlayerState}
+              originalResources={turnState.originalPlayerState}
+              onConfirm={handleConfirmTurn}
+              onRollback={handleRollbackTurn}
+              onPassTurn={handlePassTurn}
+              isConfirming={turnState.isConfirming}
+              error={turnState.confirmError}
+              selectingPassBooster={selectingPassBooster}
             />
           </div>
         </div>
 
-        {/* 우측: 연방타일 + 파워액션 + 라운드부스터 + 행성종류판 - 25% */}
-        <div className="w-[25%] flex flex-col gap-3">
-          {/* 잊힌 함대 */}
+        {/* 우측: 함대 + 파워 + 연방 + 부스터 */}
+        <div className="w-[25%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
           <FederationTiles
             roomId={roomId!}
             playerStates={playerStates}
           />
-          {/* 파워 액션 */}
           <PowerActions
             roomId={roomId!}
             mySeatNo={mySeatNo}
             isMyTurn={isMyTurn}
             playerStates={playerStates}
           />
-          {/* 연방 타일 공급 */}
           <FederationSupply roomId={roomId!} playerId={playerId} isMyTurn={isMyTurn} refreshKey={techRefreshKey} />
-          {/* 라운드 부스터 */}
           <RoundBoosters
             boosters={boosters}
             mySeatNo={mySeatNo}

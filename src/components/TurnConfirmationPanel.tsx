@@ -52,10 +52,21 @@ export default function TurnConfirmationPanel({
     a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'FIRAKS_DOWNGRADE' && (a.payload as any).hexQ != null && (a.payload as any).trackCode
   );
   const bescodsReady = pendingActions.some(
-    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK' && (a.payload as any).trackCode
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK'
   );
+  // 후속 행동 불필요한 종족 능력 (바로 확정 가능)
+  const gleensFedReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'GLEENS_FEDERATION_TOKEN'
+  );
+  const ambasReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'AMBAS_SWAP' && (a.payload as any).hexQ != null
+  );
+  const tinkeroidsReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'TINKEROIDS_USE_ACTION'
+  );
+  const factionAbilityReady = ivitsStationReady || firaksReady || bescodsReady || gleensFedReady || ambasReady || tinkeroidsReady;
   const hasMineOrFleet = pendingActions.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-  const needsFollowUp = (boosterPending || powerTerraformPending || fleetShipSplitPending || (factionAbilityPending && !ivitsStationReady && !firaksReady && !bescodsReady)) && !hasMineOrFleet;
+  const needsFollowUp = (boosterPending || powerTerraformPending || fleetShipSplitPending || (factionAbilityPending && !factionAbilityReady)) && !hasMineOrFleet;
 
   // 헥스 선택 모드 중 (fleetShipMode 활성 = pendingActions 비어있지만 확정 불가)
   const needsFleetHex = fleetShipMode !== null;
@@ -80,19 +91,29 @@ export default function TurnConfirmationPanel({
   if (!isMyTurn) return null;
 
   if (selectingPassBooster) {
+    const { tentativeBooster } = useGameStore.getState();
     return (
       <div className="game-panel !border-amber-500/30 ring-1 ring-amber-500/20">
-        <p className="text-[10px] text-amber-400 text-center whitespace-nowrap mb-1 font-medium">
-          다음 라운드 부스터 선택
-        </p>
-        <p className="text-[9px] text-gray-400 text-center mb-1.5">아래에서 부스터를 클릭하세요</p>
-        <button
-          onClick={onRollback}
-          className="w-full bg-red-600/80 hover:bg-red-500/80 text-white py-1 px-2 rounded-lg
-                     transition font-semibold text-[10px] whitespace-nowrap"
-        >
-          초기화
-        </button>
+        {/* 초기화 + 확정 */}
+        <div className="flex gap-1 mb-1">
+          <button
+            onClick={onRollback}
+            disabled={isConfirming}
+            className="flex-1 bg-yellow-600/80 hover:bg-yellow-500/80 text-white py-1 px-1.5 rounded-lg
+                       transition font-semibold text-[8px] whitespace-nowrap"
+          >
+            초기화
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!tentativeBooster || isConfirming}
+            className="flex-1 bg-blue-600/80 hover:bg-blue-500/80 disabled:bg-gray-700/60
+                       disabled:cursor-not-allowed text-white py-1 px-1.5 rounded-lg
+                       transition font-semibold text-[8px] whitespace-nowrap"
+          >
+            {isConfirming ? '확정중' : '확정'}
+          </button>
+        </div>
       </div>
     );
   }
@@ -107,13 +128,13 @@ export default function TurnConfirmationPanel({
       )}
 
       {/* 초기화 + 확정 (항상 표시) */}
-      <div className="flex gap-1.5 mb-1.5">
+      <div className="flex gap-1 mb-1">
         <button
           onClick={onRollback}
           disabled={isConfirming}
-          className="flex-1 bg-red-600/80 hover:bg-red-500/80 disabled:bg-gray-700/60
-                     disabled:cursor-not-allowed text-white py-1.5 px-2 rounded-lg
-                     transition font-semibold text-[10px] whitespace-nowrap"
+          className="flex-1 bg-yellow-600/80 hover:bg-yellow-500/80 disabled:bg-gray-700/60
+                     disabled:cursor-not-allowed text-white py-1 px-1.5 rounded-lg
+                     transition font-semibold text-[8px] whitespace-nowrap"
         >
           초기화
         </button>
@@ -121,9 +142,9 @@ export default function TurnConfirmationPanel({
         <button
           onClick={onConfirm}
           disabled={!hasMainAction || isConfirming}
-          className="flex-1 bg-emerald-600/80 hover:bg-emerald-500/80 disabled:bg-gray-700/60
-                     disabled:cursor-not-allowed text-white py-1.5 px-2 rounded-lg
-                     transition font-semibold text-[10px] whitespace-nowrap"
+          className="flex-1 bg-blue-600/80 hover:bg-blue-500/80 disabled:bg-gray-700/60
+                     disabled:cursor-not-allowed text-white py-1 px-1.5 rounded-lg
+                     transition font-semibold text-[8px] whitespace-nowrap"
         >
           {isConfirming ? '확정중' : '확정'}
         </button>
@@ -134,9 +155,9 @@ export default function TurnConfirmationPanel({
         <button
           onClick={onPassTurn}
           disabled={isConfirming}
-          className="w-full bg-gray-600/60 hover:bg-gray-500/60 disabled:bg-gray-700/40
-                     disabled:cursor-not-allowed text-white py-1.5 px-2 rounded-lg
-                     transition font-semibold text-[10px] whitespace-nowrap"
+          className="w-full bg-red-600/80 hover:bg-red-500/80 disabled:bg-gray-700/40
+                     disabled:cursor-not-allowed text-white py-1 px-1.5 rounded-lg
+                     transition font-semibold text-[8px] whitespace-nowrap"
         >
           {isConfirming ? '처리중...' : '패스'}
         </button>

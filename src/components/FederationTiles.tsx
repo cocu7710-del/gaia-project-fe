@@ -11,6 +11,7 @@ import { FEDERATION_TOKEN_IMAGE_MAP } from '../constants/federationTokenImage';
 import { ARTIFACT_IMAGE_MAP } from '../constants/artifactImage';
 
 import closeImg from '../assets/resource/Close.png';
+import ufoImg from '../assets/resource/UFO.png';
 
 // 함대 배경 이미지
 import tfMarsImg from '@/assets/board/T.F_Mars.png';
@@ -477,19 +478,19 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
     setTrackPickingFor(null);
   };
 
-  // 우주선 연방 토큰 클릭 → FederationSupply의 handleSelectTile과 동일
-  const handleSelectFedTile = async (tileCode: string) => {
+  // 우주선 연방 토큰 클릭 → pendingAction에 추가 (확정 버튼으로 처리)
+  const handleSelectFedTile = (tileCode: string) => {
     if (!federationMode || !myPlayerId) return;
-    try {
-      const res = await roomApi.formFederation(roomId, myPlayerId, tileCode, federationMode.placedTokens, federationMode.selectedBuildings);
-      if (!res.data.success) {
-        alert(res.data.message ?? '연방 형성 실패');
-        return;
-      }
-      setFederationMode(null);
-    } catch (e: any) {
-      alert(e?.response?.data?.message ?? '연방 형성 오류');
-    }
+    addPendingAction({
+      id: `action-${Date.now()}-${Math.random()}`,
+      type: 'FORM_FEDERATION',
+      timestamp: Date.now(),
+      payload: {
+        tileCode,
+        placedTokens: federationMode.placedTokens,
+        selectedBuildings: federationMode.selectedBuildings,
+      },
+    });
   };
 
   // 함대 기술 타일 클릭 핸들러 → TechTracks의 트랙 클릭으로 트랙 지정
@@ -500,8 +501,8 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
   };
 
   return (
-    <div className="game-panel">
-      <div className="flex flex-col gap-2">
+    <div className="game-panel !p-1.5">
+      <div className="flex flex-col gap-1">
         {spaceships.map((ship) => {
           const hasEntered = !!(myPlayerId && (fleetProbes[ship.fleetCode] || []).includes(myPlayerId));
           return (
@@ -619,6 +620,24 @@ interface PlayerTokenSlotsProps {
   positions: SlotPosition[];
 }
 
+/** UFO 이미지를 플레이어 색상으로 colorize — 형태만 유지하고 색상 채움 */
+function ColorizedUfo({ color, size = 20, opacity = 1 }: { color: string; size?: number; opacity?: number }) {
+  const filterId = `ufo-${color.replace('#', '')}-${size}`;
+  return (
+    <svg width={size} height={size} style={{ display: 'inline-block', opacity }}>
+      <defs>
+        <filter id={filterId}>
+          {/* 플레이어 색으로 채움 */}
+          <feFlood floodColor={color} result="fill" />
+          {/* 원본 알파(형태)만 남겨서 합성 */}
+          <feComposite in="fill" in2="SourceGraphic" operator="in" />
+        </filter>
+      </defs>
+      <image href={ufoImg} x="0" y="0" width={size} height={size} filter={`url(#${filterId})`} />
+    </svg>
+  );
+}
+
 function PlayerTokenSlots({ tokens, positions }: PlayerTokenSlotsProps) {
   return (
     <>
@@ -633,22 +652,19 @@ function PlayerTokenSlots({ tokens, positions }: PlayerTokenSlotsProps) {
             style={{
               left: `${pos.left}%`,
               top: `${pos.top}%`,
-              width: '5%',
+              width: '8%',
               height: '16%',
               transform: 'translate(-50%, -50%)',
             }}
           >
             {hasPlayer ? (
-              <div
-                className="w-full h-full rounded-full border-2 border-white"
-                style={{
-                  backgroundColor: token!.color!,
-                  opacity: token!.isTentative ? 0.75 : 1,
-                  borderStyle: token!.isTentative ? 'dashed' : 'solid',
-                }}
+              <ColorizedUfo
+                color={token!.color!}
+                size={20}
+                opacity={token!.isTentative ? 0.75 : 1}
               />
             ) : (
-              <div className="w-full h-full rounded-full border border-white/30 bg-black/20" />
+              <div className="w-3 h-3 rounded-full border border-white/30 bg-black/20" />
             )}
           </div>
         );

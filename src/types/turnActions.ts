@@ -10,7 +10,8 @@ export type GameActionType =
   | 'DEPLOY_GAIAFORMER'
   | 'FLEET_SHIP_ACTION'
   | 'TECH_TILE_ACTION'
-  | 'FACTION_ABILITY';
+  | 'FACTION_ABILITY'
+  | 'FORM_FEDERATION';
 
 export interface ResourceCost {
   credit?: number;
@@ -37,6 +38,7 @@ export interface PlaceMineAction extends GameAction {
     cost: ResourceCost;
     gaiaformerUsed?: boolean; // 소행성 비홈 건설 시 가이아포머 제거
     vpBonus?: number;         // 원시행성 건설 시 +6VP
+    isNewSector?: boolean;    // 다카니안 PI: 새 섹터 광산 건설 시 +2c+1k
   };
 }
 
@@ -149,5 +151,14 @@ export interface FactionAbilityAction extends GameAction {
     abilityCode: string;
     terraformDiscount?: number;  // SPACE_GIANTS_TERRAFORM_2: 2
     navBonus?: number;           // GLEENS_JUMP: 2
+  };
+}
+
+export interface FormFederationAction extends GameAction {
+  type: 'FORM_FEDERATION';
+  payload: {
+    tileCode: string;
+    placedTokens: number[][];
+    selectedBuildings: number[][];
   };
 }

@@ -37,12 +37,21 @@ export class ResourceCalculator {
     state: PlayerStateResponse,
     gain: ResourceCost
   ): PlayerStateResponse {
+    const qicGain = gain.qic || 0;
+    let qicAdd = 0;
+    let oreAdd = 0;
+    if (qicGain > 0 && state.factionCode === 'GLEENS') {
+      // 글린: 아카데미 건설 후 QIC → 광석, 건설 전 버림
+      if (state.stockAcademy < 2) oreAdd = qicGain;
+    } else {
+      qicAdd = qicGain;
+    }
     return {
       ...state,
       credit: state.credit + (gain.credit || 0),
-      ore: state.ore + (gain.ore || 0),
+      ore: Math.min(15, state.ore + (gain.ore || 0) + oreAdd),
       knowledge: state.knowledge + (gain.knowledge || 0),
-      qic: state.qic + (gain.qic || 0),
+      qic: state.qic + qicAdd,
       powerBowl3: state.powerBowl3 + (gain.power || 0),
       powerBowl1: state.powerBowl1 + (gain.powerToken || 0),
       victoryPoints: state.victoryPoints + (gain.vp || 0),

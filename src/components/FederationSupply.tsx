@@ -62,20 +62,20 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
     }
   };
 
-  const handleSelectTile = async (tileCode: string) => {
+  const handleSelectTile = (tileCode: string) => {
     if (!federationMode || !playerId) return;
-    try {
-      const res = await roomApi.formFederation(roomId, playerId, tileCode, federationMode.placedTokens, federationMode.selectedBuildings);
-      if (!res.data.success) {
-        alert(res.data.message ?? '연방 형성 실패');
-        setFederationPhase('PLACE_TOKENS');
-        return;
-      }
-      setFederationMode(null);
-    } catch (e: any) {
-      alert(e?.response?.data?.message ?? '연방 형성 오류');
-      setFederationPhase('PLACE_TOKENS');
-    }
+    const { addPendingAction } = useGameStore.getState();
+    addPendingAction({
+      id: `action-${Date.now()}-${Math.random()}`,
+      type: 'FORM_FEDERATION',
+      timestamp: Date.now(),
+      payload: {
+        tileCode,
+        placedTokens: federationMode.placedTokens,
+        selectedBuildings: federationMode.selectedBuildings,
+      },
+    });
+    // federationMode는 유지 (확정/초기화 시 정리)
   };
 
   if (tiles.length === 0) return null;
@@ -161,7 +161,7 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
       )}
 
       {/* 타일 목록 */}
-      <div className="flex flex-wrap gap-2.5">
+      <div className="flex flex-wrap gap-1">
         {tiles.map((tile) => {
           const imgSrc = FEDERATION_TOKEN_IMAGE_MAP[tile.tileCode];
           const isEmpty = tile.quantity <= 0;
@@ -176,7 +176,7 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
               title={`${tile.description} (${tile.quantity}개)`}
             >
               {imgSrc ? (
-                <img src={imgSrc} alt={tile.tileCode} className="h-12 w-auto object-contain" draggable={false} />
+                <img src={imgSrc} alt={tile.tileCode} className="h-8 w-auto object-contain" draggable={false} />
               ) : (
                 <div className="h-12 w-16 bg-gray-700 rounded flex items-center justify-center">
                   <span className="text-[8px] text-gray-400">{tile.tileCode.replace('FED_', '')}</span>

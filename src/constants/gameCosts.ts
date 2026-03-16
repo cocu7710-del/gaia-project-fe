@@ -28,5 +28,5 @@ export const BUILDING_COSTS: Record<string, { base: ResourceCost }> = {
 export const UPGRADE_OPTIONS: Record<string, string[]> = {
   MINE: ['TRADING_STATION'],
   TRADING_STATION: ['RESEARCH_LAB', 'PLANETARY_INSTITUTE'],
-  RESEARCH_LAB: ['ACADEMY'],
+  RESEARCH_LAB: ['ACADEMY_KNOWLEDGE', 'ACADEMY_QIC'],
 };

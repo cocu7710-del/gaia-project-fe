@@ -31,6 +31,8 @@ const FACTION_BASE: Record<string, Partial<IncomeResult>> = {
   HADSCH_HALLAS: { credit: 3, ore: 1, knowledge: 1 },
   ITARS:         { ore: 1, knowledge: 1, powerToken: 1 },
   LANTIDS:       { ore: 1, knowledge: 1, powerToken: 1 },
+  AMBAS:         { ore: 2, knowledge: 1 },
+  BESCODS:       { ore: 1 },
 };
 const DEFAULT_FACTION_BASE: Partial<IncomeResult> = { ore: 1, knowledge: 1 };
 
@@ -99,7 +101,20 @@ function getTsCredit(stockTs: number): number {
 }
 
 // ─────────────────────────────────────────
-// 6. 기술 타일 수입 (INCOME 타입)
+// 6. 의회(PI) 수입 — 종족별
+// ─────────────────────────────────────────
+const PI_INCOME: Record<string, Partial<IncomeResult>> = {
+  IVITS:         { powerCharge: 4, qic: 1 },
+  GLEENS:        { powerCharge: 4, ore: 1 },
+  AMBAS:         { powerCharge: 4, powerToken: 2 },
+  BESCODS:       { powerCharge: 4, powerToken: 2 },
+  LANTIDS:       { powerCharge: 4 },
+  SPACE_GIANTS:  { powerCharge: 6, powerToken: 1 },
+};
+const DEFAULT_PI_INCOME: Partial<IncomeResult> = { powerCharge: 4, powerToken: 1 };
+
+// ─────────────────────────────────────────
+// 7. 기술 타일 수입 (INCOME 타입)
 // ─────────────────────────────────────────
 const TECH_TILE_INCOME: Record<string, Partial<IncomeResult>> = {
   BASIC_TILE_2: { ore: 1, powerCharge: 1 },
@@ -124,14 +139,21 @@ export function calcIncome(
   result = add(result, (factionCode && FACTION_BASE[factionCode]) || DEFAULT_FACTION_BASE);
 
   // 2. 건물 수입
+  const piIncome = ps.stockPlanetaryInstitute < 1
+    ? (factionCode && PI_INCOME[factionCode]) || DEFAULT_PI_INCOME
+    : {};
+  const totalAcademies = 2 - ps.stockAcademy;
+  const qicAcademyCount = ps.hasQicAcademy ? 1 : 0;
+  const knowledgeAcademyCount = Math.max(0, totalAcademies - qicAcademyCount);
+  const isItars = factionCode === 'ITARS';
+  const academyKnowledge = knowledgeAcademyCount * (isItars ? 3 : 2);
   result = add(result, {
     ore:         getMineOre(ps.stockMine),
     credit:      getTsCredit(ps.stockTradingStation),
     knowledge:   (3 - ps.stockResearchLab)                       // 연구소: 지식 1/개
-                 + (2 - ps.stockAcademy) * 2,                    // 아카데미: 지식 2/개
-    powerCharge: ps.stockPlanetaryInstitute < 1 ? 4 : 0,         // PI: 파워 순환 4
-    qic:         factionCode === 'IVITS' && ps.stockPlanetaryInstitute < 1 ? 1 : 0, // 하이브 PI: QIC 1
+                 + academyKnowledge,                              // 지식 아카데미: 2(아이타 3)지식/개
   });
+  result = add(result, piIncome);
 
   // 3. 기술 트랙 수입
   result = add(result, getEconomyIncome(ps.techEconomy, isOptionA));

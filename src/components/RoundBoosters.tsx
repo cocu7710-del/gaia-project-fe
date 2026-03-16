@@ -63,7 +63,12 @@ export default function RoundBoosters({
   // 부스터 클릭 핸들러
   const handleBoosterClick = (boosterCode: string) => {
     if (selectingPassBooster) {
-      onPassBoosterSelect?.(boosterCode);
+      // 패스 부스터도 임시 선택 → 확정 시 전송
+      if (turnState.tentativeBooster) {
+        alert('이미 부스터를 선택했습니다. 확정하거나 초기화하세요.');
+        return;
+      }
+      setTentativeBooster(boosterCode);
       return;
     }
 
@@ -85,7 +90,7 @@ export default function RoundBoosters({
 
   return (
     <div className={`game-panel ${selectingPassBooster ? 'ring-2 ring-amber-500/70 !border-amber-500/30' : ''}`}>
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center mb-1">
         <h4 className="panel-title !mb-0">라운드 부스터</h4>
         {selectingPassBooster && (
           <button

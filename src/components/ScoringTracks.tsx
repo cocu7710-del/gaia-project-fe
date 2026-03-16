@@ -98,7 +98,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
           height="auto"
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="overflow-visible"
-          style={{ maxHeight: '150px' }}
+          style={{ maxHeight: '120px' }}
         >
 
           {roundScorings.map((rs, idx) => {

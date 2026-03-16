@@ -3,15 +3,25 @@ import { hexDistance } from './navigationCalculator';
 import type { ResourceCost } from '../types/turnActions';
 
 /** 건물 파워 값 (리치 계산용) */
-export function buildingPowerValue(buildingType: string): number {
+export function buildingPowerValue(buildingType: string, hasBigBuildingBonus = false): number {
   switch (buildingType) {
     case 'MINE': return 1;
     case 'TRADING_STATION':
     case 'RESEARCH_LAB': return 2;
     case 'PLANETARY_INSTITUTE':
-    case 'ACADEMY': return 3;
+    case 'ACADEMY':
+    case 'ACADEMY_KNOWLEDGE':
+    case 'ACADEMY_QIC': return hasBigBuildingBonus ? 4 : 3;
     default: return 0;
   }
+}
+
+/** BASIC_TILE_9 보유 여부 확인 (큰 건물 파워 가치 +1) */
+export function hasBasicTile9(techTileData: any, playerId: string): boolean {
+  if (!techTileData || !playerId) return false;
+  return techTileData.basicTiles?.some(
+    (t: any) => t.tileCode === 'BASIC_TILE_9' && t.takenByPlayerId === playerId && !t.isCovered
+  ) ?? false;
 }
 
 /** 2거리 이내 다른 플레이어 건물 존재 여부 */
@@ -44,6 +54,8 @@ export function calcUpgradeCost(
     case 'PLANETARY_INSTITUTE':
       return { credit: 6, ore: 4 };
     case 'ACADEMY':
+    case 'ACADEMY_KNOWLEDGE':
+    case 'ACADEMY_QIC':
       return { credit: 6, ore: 6 };
     default:
       return {};
@@ -64,6 +76,7 @@ export function calcLeechInfo(
   allBuildings: GameBuilding[],
   playerStates: PlayerStateResponse[],
   myPlayerId: string,
+  techTileData?: any,
 ): LeechInfo[] {
   if (buildingPowerValue(toType) === 0) return [];
 
@@ -71,7 +84,8 @@ export function calcLeechInfo(
   const maxPowerByPlayer = new Map<string, number>();
   for (const b of allBuildings) {
     if (b.playerId !== myPlayerId && hexDistance(hexQ, hexR, b.hexQ, b.hexR) <= 2) {
-      const pv = buildingPowerValue(b.buildingType);
+      const bonus = hasBasicTile9(techTileData, b.playerId);
+      const pv = buildingPowerValue(b.buildingType, bonus);
       const prev = maxPowerByPlayer.get(b.playerId) ?? 0;
       if (pv > prev) maxPowerByPlayer.set(b.playerId, pv);
     }

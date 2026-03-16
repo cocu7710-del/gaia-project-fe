@@ -4,6 +4,17 @@ import type { TurnState } from '../types/turnState';
 import type { GameAction, ResourceCost } from '../types/turnActions';
 import { ResourceCalculator } from '../utils/resourceCalculator';
 
+/** 글린 QIC 획득: 아카데미 건설 전 → 버림, 아카데미 건설 후 → 광석 변환 */
+function addQicPreview(ps: PlayerStateResponse, amount: number): PlayerStateResponse {
+  if (ps.factionCode === 'GLEENS') {
+    if (ps.stockAcademy < 2) {
+      return { ...ps, ore: Math.min(15, ps.ore + amount) };
+    }
+    return ps; // 아카데미 건설 전: 버림
+  }
+  return { ...ps, qic: ps.qic + amount };
+}
+
 /** 연방 토큰 배치용: 파워 토큰 1개 영구 제거 (bowl1→bowl2→bowl3 순) */
 function removePowerTokenPreview(ps: PlayerStateResponse): PlayerStateResponse {
   if (ps.powerBowl1 > 0) return { ...ps, powerBowl1: ps.powerBowl1 - 1 };
@@ -41,10 +52,10 @@ function applyTrackAdvance(preview: PlayerStateResponse, trackCode: string): Pla
       if (newLevel === 1 || newLevel === 4) p = { ...p, ore: p.ore + 2 };
       break;
     case 'NAVIGATION':
-      if (newLevel === 1 || newLevel === 3) p = { ...p, qic: p.qic + 1 };
+      if (newLevel === 1 || newLevel === 3) p = addQicPreview(p, 1);
       break;
     case 'AI':
-      p = { ...p, qic: p.qic + (newLevel <= 2 ? 1 : 2) };
+      p = addQicPreview(p, newLevel <= 2 ? 1 : 2);
       break;
     case 'GAIA_FORMING':
       if (newLevel === 1 || newLevel === 3 || newLevel === 4) p = { ...p, stockGaiaformer: (p.stockGaiaformer ?? 0) + 1 };
@@ -69,16 +80,37 @@ function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerSta
     case 'POWER_TO_CREDIT':  return { ...preview, powerBowl3: preview.powerBowl3 - 1, powerBowl1: preview.powerBowl1 + 1, credit: preview.credit + 1 };
     case 'POWER_TO_ORE':     return { ...preview, powerBowl3: preview.powerBowl3 - 3, powerBowl1: preview.powerBowl1 + 3, ore: preview.ore + 1 };
     case 'POWER_TO_KNOWLEDGE': return { ...preview, powerBowl3: preview.powerBowl3 - 4, powerBowl1: preview.powerBowl1 + 4, knowledge: preview.knowledge + 1 };
-    case 'POWER_TO_QIC':     return { ...preview, powerBowl3: preview.powerBowl3 - 4, powerBowl1: preview.powerBowl1 + 4, qic: preview.qic + 1 };
+    case 'POWER_TO_QIC':     return addQicPreview({ ...preview, powerBowl3: preview.powerBowl3 - 4, powerBowl1: preview.powerBowl1 + 4 }, 1);
     case 'KNOWLEDGE_TO_CREDIT': return { ...preview, knowledge: preview.knowledge - 1, credit: preview.credit + 1 };
     case 'QIC_TO_ORE': return { ...preview, qic: preview.qic - 1, ore: preview.ore + 1 };
-    case 'BAL_TAKS_CONVERT_GAIAFORMER': return { ...preview, stockGaiaformer: preview.stockGaiaformer - 1, qic: preview.qic + 1 };
+    case 'BAL_TAKS_CONVERT_GAIAFORMER': return addQicPreview({ ...preview, stockGaiaformer: preview.stockGaiaformer - 1 }, 1);
     case 'HADSCH_HALLAS_3C_ORE': return { ...preview, credit: preview.credit - 3, ore: preview.ore + 1 };
     case 'HADSCH_HALLAS_4C_KNOWLEDGE': return { ...preview, credit: preview.credit - 4, knowledge: preview.knowledge + 1 };
-    case 'HADSCH_HALLAS_4C_QIC': return { ...preview, credit: preview.credit - 4, qic: preview.qic + 1 };
+    case 'HADSCH_HALLAS_4C_QIC': return addQicPreview({ ...preview, credit: preview.credit - 4 }, 1);
+    case 'NEVLAS_4P_ORE_CREDIT': return { ...preview, powerBowl3: preview.powerBowl3 - 2, powerBowl1: preview.powerBowl1 + 2, ore: preview.ore + 1, credit: preview.credit + 1 };
+    case 'NEVLAS_4P_ORE2': return { ...preview, powerBowl3: preview.powerBowl3 - 2, powerBowl1: preview.powerBowl1 + 2, ore: preview.ore + 2 };
     default: return preview;
   }
 }
+
+// 연방 타일별 즉시 보상 (preview 반영용)
+const FEDERATION_TILE_REWARD: Record<string, { credit?: number; ore?: number; knowledge?: number; qic?: number; powerToken?: number; vp?: number; powerToBowl3?: number }> = {
+  FED_TILE_1:     { knowledge: 2, vp: 6 },
+  FED_TILE_2:     { credit: 6, vp: 7 },
+  FED_TILE_3:     { vp: 12 },
+  FED_TILE_4:     { qic: 1, vp: 8 },
+  FED_TILE_5:     { ore: 2, vp: 7 },
+  FED_TILE_6:     { powerToken: 2, vp: 8 },
+  FED_EXP_TILE_1: { knowledge: 8 },
+  FED_EXP_TILE_2: { knowledge: 4, vp: 4 },
+  FED_EXP_TILE_3: { credit: 8, vp: 8 },
+  FED_EXP_TILE_4: { ore: 2, qic: 1, vp: 4 },
+  FED_EXP_TILE_5: {},  // 3테라+무료광산 (별도 처리)
+  FED_EXP_TILE_6: { vp: 12 },
+  FED_EXP_TILE_7: {},  // 무료 광산 (별도 처리)
+  FED_EXP_TILE_8: { powerToBowl3: 2, vp: 7 },
+  GLEENS_FEDERATION: { credit: 2, ore: 1, knowledge: 1 },
+};
 
 // 액션 타일별 즉시 효과 (preview 반영용)
 const TECH_TILE_ACTION_PREVIEW: Record<string, { powerCharge?: number; ore?: number; knowledge?: number; qic?: number; credit?: number }> = {
@@ -106,6 +138,16 @@ function calculatePreviewState(
 ): PlayerStateResponse | null {
   if (!originalState) return null;
   let preview = { ...originalState };
+  // burn power를 먼저 적용 (자유 행동이므로 다른 액션보다 선행)
+  if (burnPowerCount > 0) {
+    const isItars = preview.factionCode === 'ITARS';
+    preview = {
+      ...preview,
+      powerBowl2: preview.powerBowl2 - burnPowerCount * 2,
+      powerBowl3: preview.powerBowl3 + burnPowerCount,
+      ...(isItars ? { gaiaPower: (preview.gaiaPower || 0) + burnPowerCount } : {}),
+    };
+  }
   for (const act of actions) {
     if (act.type === 'PLACE_MINE' || act.type === 'UPGRADE_BUILDING' ||
         act.type === 'POWER_ACTION' || act.type === 'FLEET_PROBE' || act.type === 'ADVANCE_TECH' ||
@@ -126,6 +168,10 @@ function calculatePreviewState(
       // 기오덴 PI: 새 행성 개척 시 지식 +3
       if (preview.factionCode === 'GEODENS' && preview.stockPlanetaryInstitute === 0 && act.payload.isNewPlanet) {
         preview = { ...preview, knowledge: preview.knowledge + 3 };
+      }
+      // 다카니안 PI: 새 섹터 광산 건설 시 +2c+1k
+      if (preview.factionCode === 'DAKANIANS' && preview.stockPlanetaryInstitute === 0 && act.payload.isNewSector) {
+        preview = { ...preview, credit: preview.credit + 2, knowledge: preview.knowledge + 1 };
       }
     }
     if (act.type === 'UPGRADE_BUILDING') {
@@ -173,6 +219,32 @@ function calculatePreviewState(
         preview = { ...preview, qic: preview.qic - act.payload.qicUsed };
       }
     }
+    if (act.type === 'FACTION_ABILITY' && act.payload.abilityCode === 'GLEENS_FEDERATION_TOKEN') {
+      preview = { ...preview, credit: preview.credit - 2, ore: preview.ore - 1, knowledge: preview.knowledge - 1 };
+    }
+    if (act.type === 'FACTION_ABILITY' && act.payload.abilityCode === 'QIC_ACADEMY_ACTION') {
+      preview = addQicPreview(preview, 1);
+    }
+    if (act.type === 'FACTION_ABILITY' && act.payload.abilityCode === 'TINKEROIDS_USE_ACTION') {
+      switch (act.payload.tinkAction) {
+        case 'TINK_POWER_4': preview = applyPowerCharge(preview, 4); break;
+        case 'TINK_QIC_1': preview = addQicPreview(preview, 1); break;
+        case 'TINK_KNOWLEDGE_3': preview = { ...preview, knowledge: preview.knowledge + 3 }; break;
+        case 'TINK_QIC_2': preview = addQicPreview(preview, 2); break;
+      }
+    }
+    if (act.type === 'FORM_FEDERATION') {
+      const reward = FEDERATION_TILE_REWARD[act.payload.tileCode];
+      if (reward) {
+        if (reward.credit) preview = { ...preview, credit: preview.credit + reward.credit };
+        if (reward.ore) preview = { ...preview, ore: preview.ore + reward.ore };
+        if (reward.knowledge) preview = { ...preview, knowledge: preview.knowledge + reward.knowledge };
+        if (reward.qic) preview = addQicPreview(preview, reward.qic);
+        if (reward.vp) preview = { ...preview, victoryPoints: preview.victoryPoints + reward.vp };
+        if (reward.powerToken) preview = { ...preview, powerBowl1: preview.powerBowl1 + reward.powerToken };
+        if (reward.powerToBowl3) preview = { ...preview, powerBowl3: preview.powerBowl3 + reward.powerToBowl3 };
+      }
+    }
     if (act.type === 'TECH_TILE_ACTION') {
       const effect = TECH_TILE_ACTION_PREVIEW[act.payload.tileCode];
       if (effect) {
@@ -188,19 +260,10 @@ function calculatePreviewState(
         }
         if (effect.ore) preview = { ...preview, ore: preview.ore + effect.ore };
         if (effect.knowledge) preview = { ...preview, knowledge: preview.knowledge + effect.knowledge };
-        if (effect.qic) preview = { ...preview, qic: preview.qic + effect.qic };
+        if (effect.qic) preview = addQicPreview(preview, effect.qic);
         if (effect.credit) preview = { ...preview, credit: preview.credit + effect.credit };
       }
     }
-  }
-  if (burnPowerCount > 0) {
-    const isItars = preview.factionCode === 'ITARS';
-    preview = {
-      ...preview,
-      powerBowl2: preview.powerBowl2 - burnPowerCount * 2,
-      powerBowl3: preview.powerBowl3 + burnPowerCount,  // 모든 종족: 1개는 3구역
-      ...(isItars ? { gaiaPower: (preview.gaiaPower || 0) + burnPowerCount } : {}), // 아이타: 추가 1개 가이아
-    };
   }
   for (const code of freeConvertActions) {
     preview = applyFreeConvert(preview, code);
@@ -282,6 +345,7 @@ interface GameState {
   itarsGaiaChoice: {
     itarsPlayerId: string;
     availableChoices: number;
+    tilePicking: boolean; // true: 기술타일 선택 모드 (TechTracks에서 선택)
   } | null;
 
   // 함대 선박 액션: hex/track 선택 대기 모드
@@ -303,6 +367,10 @@ interface GameState {
     placedTokens: number[][];     // [q,r] 배열
     phase: 'SELECT_BUILDINGS' | 'PLACE_TOKENS' | 'SELECT_TILE';
   } | null;
+
+  // 패스 부스터 선택 모드
+  selectingPassBooster: boolean;
+  setSelectingPassBooster: (v: boolean) => void;
 
   // Actions
   setRoomInfo: (roomId: string, roomCode: string) => void;
@@ -362,6 +430,11 @@ interface GameState {
 
   // 연방 그룹
   setFederationGroups: (groups: GameState['federationGroups']) => void;
+
+  // 패스 순서 추적
+  passedSeatNos: number[];
+  addPassedSeatNo: (seatNo: number) => void;
+  clearPassedSeatNos: () => void;
 }
 
 const initialState = {
@@ -390,6 +463,8 @@ const initialState = {
   federationGroups: [],
   tinkeroidsActionChoice: null,
   itarsGaiaChoice: null,
+  passedSeatNos: [],
+  selectingPassBooster: false,
   tentativeTechTileCode: null,
   tentativeTechTrackCode: null,
   turnState: {
@@ -711,4 +786,13 @@ export const useGameStore = create<GameState>((set) => ({
   setItarsGaiaChoice: (data) => set({ itarsGaiaChoice: data }),
 
   setFederationGroups: (groups) => set({ federationGroups: groups }),
+
+  addPassedSeatNo: (seatNo) => set((state) => ({
+    passedSeatNos: state.passedSeatNos.includes(seatNo)
+      ? state.passedSeatNos
+      : [...state.passedSeatNos, seatNo],
+  })),
+  clearPassedSeatNos: () => set({ passedSeatNos: [] }),
+
+  setSelectingPassBooster: (v) => set({ selectingPassBooster: v }),
 }));

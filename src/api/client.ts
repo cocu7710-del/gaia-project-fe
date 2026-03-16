@@ -57,7 +57,7 @@ export const roomApi = {
 
   // 건물 업그레이드 (PLAYING 페이즈)
   upgradeBuilding: (roomId: string, playerId: string, hexQ: number, hexR: number,
-                    targetBuildingType: string, techTileCode?: string, techTrackCode?: string) =>
+                    targetBuildingType: string, techTileCode?: string, techTrackCode?: string, academyType?: string) =>
     apiClient.post<UpgradeBuildingResponse>(`/api/rooms/${roomId}/actions/upgrade`, {
       playerId,
       hexQ,
@@ -65,6 +65,7 @@ export const roomApi = {
       targetBuildingType,
       techTileCode: techTileCode || null,
       techTrackCode: techTrackCode || null,
+      academyType: academyType || null,
     }),
 
   // PLAYING 페이즈 광산 건설
@@ -284,6 +285,8 @@ interface GamePublicStateResponse {
   currentTurnSeatNo: number | null;
   tinkeroidsExtraRingPlanet: string | null;
   moweidsExtraRingPlanet: string | null;
+  pendingSpecialPlayerId: string | null;
+  pendingSpecialData: Record<string, unknown> | null;
   seats: SeatView[];
 }
 
@@ -480,6 +483,8 @@ interface PlayerStateResponse {
   factionAbilityUsed: boolean;
   baltaksConvertedGaiaformers: number;
   permanentlyRemovedGaiaformers: number;
+  hasQicAcademy: boolean;
+  qicAcademyActionUsed: boolean;
 }
 
 interface TechTrackResponse {

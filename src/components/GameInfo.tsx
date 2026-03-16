@@ -1,8 +1,8 @@
 import { useGameStore } from '../store/gameStore';
 
 export default function GameInfo() {
-  const { status, currentRound, gamePhase, economyTrackOption, nextSetupSeatNo, currentTurnSeatNo, seats } =
-    useGameStore();
+  const { status, currentRound, gamePhase, economyTrackOption, nextSetupSeatNo, currentTurnSeatNo, seats,
+    itarsGaiaChoice, tinkeroidsActionChoice } = useGameStore();
 
   const getStatusText = () => {
     switch (status) {
@@ -20,11 +20,19 @@ export default function GameInfo() {
       case 'SETUP_MINE_XENOS': return '제노스 추가 광산 배치';
       case 'BOOSTER_SELECTION': return '부스터 선택';
       case 'PLAYING': return `${currentRound ?? '?'}라운드 진행`;
+      case 'ITARS_GAIA_PHASE': return '아이타 의회 능력 선택';
+      case 'TINKEROIDS_ACTION_PHASE': return '팅커로이드 액션 선택';
       default: return gamePhase || '-';
     }
   };
 
   const getCurrentTurnPlayerName = () => {
+    // 특수 페이즈: playerId로 좌석 찾기
+    if (gamePhase === 'ITARS_GAIA_PHASE' || gamePhase === 'TINKEROIDS_ACTION_PHASE') {
+      const specialPlayerId = itarsGaiaChoice?.itarsPlayerId ?? tinkeroidsActionChoice?.tinkeroidsPlayerId;
+      if (!specialPlayerId) return null;
+      return seats.find((s) => s.playerId === specialPlayerId)?.raceNameKo ?? null;
+    }
     const seatNo = gamePhase === 'PLAYING' ? currentTurnSeatNo : nextSetupSeatNo;
     if (!seatNo) return null;
     return seats.find((s) => s.seatNo === seatNo)?.raceNameKo ?? null;
@@ -56,7 +64,10 @@ export default function GameInfo() {
       {currentTurnPlayer && (
         <div className="flex items-center gap-1.5">
           <span className="text-gray-500 text-[10px] uppercase tracking-wider">현재 턴</span>
-          <span className="font-semibold text-amber-400">{currentTurnPlayer}</span>
+          <span className={`font-semibold ${
+            gamePhase === 'ITARS_GAIA_PHASE' || gamePhase === 'TINKEROIDS_ACTION_PHASE'
+              ? 'text-blue-400' : 'text-amber-400'
+          }`}>{currentTurnPlayer}</span>
         </div>
       )}
 
