@@ -42,7 +42,7 @@ const FLEET_SHIP_ACTION_DEFS: Record<string, {
   TWILIGHT_FED:      { fleetName: 'TWILIGHT',   label: 'QIC3→연방수입', cost: { qic: 3 }, isImmediate: true, description: 'QIC 3 → 연방 수입 (QIC+1 광석+1 VP+2)' },
   TWILIGHT_UPGRADE:  { fleetName: 'TWILIGHT',   label: '파워3+광석2→교역소↑연구소', cost: { power: 3, ore: 2 }, isImmediate: true, needsTsToRl: true, description: '파워 3 + 광석 2 → 내 교역소를 연구소로 업그레이드' },
   TWILIGHT_NAV:      { fleetName: 'TWILIGHT',   label: '지식1→항법+3', cost: { knowledge: 1 }, isImmediate: false, navBonus: 3, description: '지식 1 소모 → 다음 광산 건설 시 항법 거리 +3' },
-  TWILIGHT_ARTIFACT: { fleetName: 'TWILIGHT',   label: '파워6→인공물', cost: { power: 6 }, isImmediate: true, description: '파워 6 → 인공물 획득 (VP+4, QIC+1)' },
+  TWILIGHT_ARTIFACT: { fleetName: 'TWILIGHT',   label: '파워6→인공물', cost: { power: 6 }, isImmediate: true, needsArtifact: true, description: '파워 6 소각 → 인공물 선택 획득' },
 };
 
 const FLEET_ORDER = ['TF_MARS', 'ECLIPSE', 'REBELLION', 'TWILIGHT'] as const;

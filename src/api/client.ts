@@ -98,10 +98,11 @@ export const roomApi = {
     apiClient.post<AdvanceTechResponse>(`/api/rooms/${roomId}/actions/tech-advance`, { playerId, trackCode }),
 
   // 파워 액션 사용
-  usePowerAction: (roomId: string, playerId: string, powerActionCode: string) =>
+  usePowerAction: (roomId: string, playerId: string, powerActionCode: string, useBrainstone?: boolean) =>
     apiClient.post<UsePowerActionResponse>(`/api/rooms/${roomId}/actions/power`, {
       playerId,
       powerActionCode,
+      useBrainstone: useBrainstone ?? null,
     }),
 
   // 현재 라운드에서 사용된 파워 액션 코드 목록 조회
@@ -137,10 +138,10 @@ export const roomApi = {
     ),
 
   // 프리 액션: 자원 변환 (턴 소모 없음)
-  freeConvert: (roomId: string, playerId: string, convertCode: string) =>
+  freeConvert: (roomId: string, playerId: string, convertCode: string, useBrainstone?: boolean) =>
     apiClient.post<{ success: boolean; message: string | null }>(
       `/api/rooms/${roomId}/actions/free-convert`,
-      { playerId, convertCode }
+      { playerId, convertCode, useBrainstone: useBrainstone ?? null }
     ),
 
   // 기술 트랙 및 타일 조회
@@ -213,6 +214,12 @@ export const roomApi = {
     apiClient.post<{ gameId: string; success: boolean; message?: string; abilityCode?: string }>(
       `/api/rooms/${roomId}/actions/itars-gaia-choice`,
       { playerId, action, tileCode, techTrackCode }
+    ),
+  // 테란 가이아→자원 수동 변환
+  terransGaiaConvert: (roomId: string, playerId: string, credits: number, ores: number, qics: number, knowledges: number) =>
+    apiClient.post<{ success: boolean; message?: string }>(
+      `/api/rooms/${roomId}/actions/terrans-gaia-convert`,
+      { playerId, credits, ores, qics, knowledges },
     ),
 };
 
@@ -428,6 +435,7 @@ interface GameBuilding {
   hexR: number;
   buildingType: string;
   isLantidsMine?: boolean;
+  hasRing?: boolean;
 }
 
 interface PlaceInitialMineResponse {
@@ -565,6 +573,7 @@ interface ArtifactInfo {
   description: string;
   position: number; // 1-4
   isTaken: boolean;
+  acquiredByPlayerId: string | null;
 }
 
 interface FleetShipActionResponse {

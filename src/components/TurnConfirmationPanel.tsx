@@ -28,7 +28,7 @@ export default function TurnConfirmationPanel({
   error,
   selectingPassBooster,
 }: TurnConfirmationPanelProps) {
-  const { tentativeTechTileCode, fleetShipMode } = useGameStore();
+  const { tentativeTechTileCode, fleetShipMode, turnState: { tentativeBooster } } = useGameStore();
   const isPlayingPhase = gamePhase === 'PLAYING';
 
   // 부스터/파워 테라포밍/split 함대 액션 후 후속 행동(광산/우주선) 미완료 시 확정 불가
@@ -64,7 +64,10 @@ export default function TurnConfirmationPanel({
   const tinkeroidsReady = pendingActions.some(
     a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'TINKEROIDS_USE_ACTION'
   );
-  const factionAbilityReady = ivitsStationReady || firaksReady || bescodsReady || gleensFedReady || ambasReady || tinkeroidsReady;
+  const moweidsRingReady = pendingActions.some(
+    a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'MOWEIDS_RING' && (a.payload as any).hexQ != null
+  );
+  const factionAbilityReady = ivitsStationReady || firaksReady || bescodsReady || gleensFedReady || ambasReady || tinkeroidsReady || moweidsRingReady;
   const hasMineOrFleet = pendingActions.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
   const needsFollowUp = (boosterPending || powerTerraformPending || fleetShipSplitPending || (factionAbilityPending && !factionAbilityReady)) && !hasMineOrFleet;
 
@@ -91,7 +94,6 @@ export default function TurnConfirmationPanel({
   if (!isMyTurn) return null;
 
   if (selectingPassBooster) {
-    const { tentativeBooster } = useGameStore.getState();
     return (
       <div className="game-panel !border-amber-500/30 ring-1 ring-amber-500/20">
         {/* 초기화 + 확정 */}

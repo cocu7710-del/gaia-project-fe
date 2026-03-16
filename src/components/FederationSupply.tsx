@@ -161,7 +161,7 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
       )}
 
       {/* 타일 목록 */}
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap gap-1 justify-center">
         {tiles.map((tile) => {
           const imgSrc = FEDERATION_TOKEN_IMAGE_MAP[tile.tileCode];
           const isEmpty = tile.quantity <= 0;
@@ -176,7 +176,7 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
               title={`${tile.description} (${tile.quantity}개)`}
             >
               {imgSrc ? (
-                <img src={imgSrc} alt={tile.tileCode} className="h-8 w-auto object-contain" draggable={false} />
+                <img src={imgSrc} alt={tile.tileCode} className="h-10 w-auto object-contain" draggable={false} />
               ) : (
                 <div className="h-12 w-16 bg-gray-700 rounded flex items-center justify-center">
                   <span className="text-[8px] text-gray-400">{tile.tileCode.replace('FED_', '')}</span>

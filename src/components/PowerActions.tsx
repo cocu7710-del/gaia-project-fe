@@ -46,20 +46,40 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
 
   const handleClick = (code: string, cost: number, description: string, gain: Record<string, number>) => {
     if (!isMyTurn || !isPlayingPhase || hasPendingAction || usedCodes.has(code)) return;
-    if (currentState && !ResourceCalculator.canAfford(currentState as any, { power: cost })) return;
+
+    // 타클론: 브레인스톤 사용 여부 확인
+    let useBrainstone = false;
+    if (currentState && (currentState as any).factionCode === 'TAKLONS'
+        && (currentState as any).brainstoneBowl === 3) {
+      // 브레인스톤(3파워) 사용 가능 — 사용할지 물어봄
+      const bowl3 = (currentState as any).powerBowl3 ?? 0;
+      const brainstoneAvail = 3;
+      // 브레인스톤 없이도 가능한지 체크
+      const canWithout = bowl3 >= cost;
+      const canWith = (bowl3 + brainstoneAvail) >= cost;
+      if (canWith && !canWithout) {
+        // 브레인스톤 없이는 불가 → 자동 사용
+        useBrainstone = true;
+      } else if (canWith && canWithout) {
+        // 둘 다 가능 → 선택
+        useBrainstone = confirm('브레인스톤을 사용하시겠습니까? (3파워, 남는 파워 반환 없음)');
+      }
+    }
+
+    if (currentState && !useBrainstone && !ResourceCalculator.canAfford(currentState as any, { power: cost })) return;
 
     const action: PowerAction = {
       id: `action-${Date.now()}-${Math.random()}`,
       type: 'POWER_ACTION',
       timestamp: Date.now(),
-      payload: { powerActionCode: code, cost: { power: cost }, gain, description },
+      payload: { powerActionCode: code, cost: { power: cost }, gain, description, useBrainstone },
     };
     addPendingAction(action);
   };
 
   return (
     <div className="game-panel">
-      <div className="relative w-full">
+      <div className="relative w-[80%] mx-auto">
         <img
           src={powerActionImg}
           alt="Power Actions"
@@ -69,7 +89,9 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
 
         {POWER_ACTION_SLOTS.map((slot) => {
           const isUsed = usedCodes.has(slot.code);
-          const canAfford = !currentState || ResourceCalculator.canAfford(currentState as any, { power: slot.cost });
+          const isTaklonsBrain3 = currentState && (currentState as any).factionCode === 'TAKLONS' && (currentState as any).brainstoneBowl === 3;
+          const effectivePower = (currentState?.powerBowl3 ?? 0) + (isTaklonsBrain3 ? 3 : 0);
+          const canAfford = !currentState || effectivePower >= slot.cost;
           const canClick = isMyTurn && isPlayingPhase && !hasPendingAction && !isUsed && canAfford;
 
           return (

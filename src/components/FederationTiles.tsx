@@ -101,7 +101,7 @@ const FLEET_ACTION_FSA_META: Record<string, {
 
 const FLEET_LAYOUTS: Record<string, FleetLayout> = {
   TF_MARS: {
-    aspectRatio: 28,
+    aspectRatio: 24,
     playerTokens: [
       { left: 21.5, top: 25 },
       { left: 21.5, top: 45 },
@@ -118,7 +118,7 @@ const FLEET_LAYOUTS: Record<string, FleetLayout> = {
     techTilePosition: 10,
   },
   ECLIPSE: {
-    aspectRatio: 28,
+    aspectRatio: 24,
     playerTokens: [
       { left: 29.3, top: 25 },
       { left: 29.3, top: 45 },
@@ -135,7 +135,7 @@ const FLEET_LAYOUTS: Record<string, FleetLayout> = {
     techTilePosition: 11,
   },
   REBELLION: {
-    aspectRatio: 28,
+    aspectRatio: 24,
     playerTokens: [
       { left: 20.5, top: 25 },
       { left: 20.5, top: 45 },
@@ -152,7 +152,7 @@ const FLEET_LAYOUTS: Record<string, FleetLayout> = {
     techTilePosition: 12,
   },
   TWILIGHT: {
-    aspectRatio: 28,
+    aspectRatio: 24,
     playerTokens: [
       { left: 22.5, top: 25 },
       { left: 22.5, top: 45 },
@@ -197,6 +197,7 @@ function getPlanetTypeFromFaction(factionCode: string | null): string {
 interface FederationTilesProps {
   roomId: string;
   playerStates?: { playerId: string; factionCode: string | null }[];
+  refreshKey?: number;
 }
 
 interface PlayerToken {
@@ -263,7 +264,7 @@ const DEFAULT_SPACESHIPS: Spaceship[] = [
 ];
 
 // ========== 메인 컴포넌트 ==========
-export default function FederationTiles({ roomId, playerStates = [] }: FederationTilesProps) {
+export default function FederationTiles({ roomId, playerStates = [], refreshKey = 0 }: FederationTilesProps) {
   const [spaceships, setSpaceships] = useState<Spaceship[]>(DEFAULT_SPACESHIPS);
   const [trackPickingFor, setTrackPickingFor] = useState<string | null>(null);
   const {
@@ -271,6 +272,7 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
     usedPowerActionCodes, gamePhase, currentTurnSeatNo, mySeatNo, addPendingAction,
     fleetShipMode, setFleetShipMode,
     tentativeTechTileCode, setTentativeTechTile,
+    setGameArtifacts,
     federationMode, setFederationMode,
   } = useGameStore();
 
@@ -334,6 +336,11 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
         const basicTiles = techRes.data.basicTiles;
         const fleetTokens = fedRes.data.forgottenFleet;
         const artifacts = fedRes.data.artifacts || [];
+        // store에 인공물 데이터 저장 (SeatSelector에서 플레이어별 보유 표시)
+        setGameArtifacts(artifacts.map((a: any) => ({
+          artifactCode: a.artifactCode, position: a.position,
+          isTaken: a.isTaken, acquiredByPlayerId: a.acquiredByPlayerId ?? null,
+        })));
 
         setSpaceships((prev) =>
           prev.map((ship, idx) => {
@@ -342,13 +349,16 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
             // 기술 타일 매칭
             let techTile: TechTileInfo | null = null;
             if (layout.techTilePosition) {
-              techTile = basicTiles.find((t) => t.position === layout.techTilePosition) || null;
+              const rawTile = basicTiles.find((t) => t.position === layout.techTilePosition) || null;
+              techTile = rawTile && !rawTile.isTaken ? rawTile : null;
             }
 
             // 연방 토큰 매칭 (position이 ship.id와 같거나, 배열 순서대로)
-            const fedToken = fleetTokens.find((t) => t.position === ship.id)
+            // quantity === 0 이면 이미 가져간 것 → null로 처리
+            const fedTokenRaw = fleetTokens.find((t) => t.position === ship.id)
               || fleetTokens[idx]
               || null;
+            const fedToken = fedTokenRaw && fedTokenRaw.quantity > 0 ? fedTokenRaw : null;
 
             // 인공물 매칭 (TWILIGHT만)
             let artifactSlots: ArtifactSlot[] = ship.artifacts;
@@ -373,7 +383,7 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
       }
     };
     loadData();
-  }, [roomId]);
+  }, [roomId, refreshKey]);
 
   // 기술 타일 선택 모드 활성화 여부 (연구소/아카데미/리벨리온 3QIC)
   const isTechPickActive = isMyTurn && !tentativeTechTileCode && turnState.pendingActions.some(
@@ -406,13 +416,36 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
   const handleActionClick = (fleetCode: string, config: ActionConfig) => {
     if (!isMyTurn || hasPendingAction || inFleetShipMode || usedCodes.has(config.code)) return;
     if (!myPlayerId || !(fleetProbes[fleetCode] || []).includes(myPlayerId)) return;
-    if (currentPlayerState && !ResourceCalculator.canAfford(currentPlayerState as any, config.cost)) return;
+    if (currentPlayerState && !ResourceCalculator.canAfford(currentPlayerState as any, config.cost)) {
+      // 타클론: 브레인스톤 bowl3이면 파워 +3으로 재판정
+      const isTakBrain = config.cost.power && (currentPlayerState as any).factionCode === 'TAKLONS'
+          && (currentPlayerState as any).brainstoneBowl === 3
+          && ((currentPlayerState.powerBowl3 ?? 0) + 3) >= config.cost.power;
+      if (!isTakBrain) return;
+    }
 
     const meta = FLEET_ACTION_FSA_META[config.code];
     if (!meta) return; // 정의되지 않은 액션 무시
 
     if (meta.needsTrack) {
       setTrackPickingFor(config.code);
+      return;
+    }
+
+    if (meta.needsArtifact) {
+      // trackCode 없이 pending 추가 → TWILIGHT 보드에서 인공물 클릭 대기
+      const action: FleetShipAction = {
+        id: `fsa-${Date.now()}-${Math.random()}`,
+        type: 'FLEET_SHIP_ACTION',
+        timestamp: Date.now(),
+        payload: {
+          fleetName: meta.fleetName,
+          actionCode: meta.fshCode,
+          cost: config.cost,
+          isImmediate: true,
+        },
+      };
+      addPendingAction(action);
       return;
     }
 
@@ -518,6 +551,33 @@ export default function FederationTiles({ roomId, playerStates = [] }: Federatio
             onTechTileClick={() => ship.techTile && handleFleetTechTileClick(ship.techTile.tileCode)}
             isFedTokenClickable={federationMode?.phase === 'SELECT_TILE' && hasEntered && !!ship.federationToken}
             onFedTokenClick={() => ship.federationToken && handleSelectFedTile(ship.federationToken)}
+            artifactClickable={
+              ship.fleetCode === 'TWILIGHT' && hasEntered && isMyTurn && !hasPendingAction && !inFleetShipMode
+              && !!currentPlayerState && (currentPlayerState.powerBowl1 + currentPlayerState.powerBowl2 + currentPlayerState.powerBowl3) >= 6
+            }
+            disabledArtifacts={(() => {
+              const disabled = new Set<string>();
+              const fedGroups = useGameStore.getState().federationGroups;
+              const hasFedToken = fedGroups.some(g => g.playerId === myPlayerId);
+              if (!hasFedToken) disabled.add('ARTIFACT_13');
+              return disabled;
+            })()}
+            onArtifactClick={(artifactCode) => {
+              const action: FleetShipAction = {
+                id: `fsa-${Date.now()}-${Math.random()}`,
+                type: 'FLEET_SHIP_ACTION',
+                timestamp: Date.now(),
+                payload: {
+                  fleetName: 'TWILIGHT',
+                  actionCode: 'TWILIGHT_ARTIFACT',
+                  cost: { power: 6 },
+                  isImmediate: true,
+                  artifactCode,
+                },
+              };
+              addPendingAction(action);
+              setTentativeTechTile(artifactCode, null);
+            }}
           />
           );
         })}
@@ -576,9 +636,12 @@ interface SpaceshipCardProps {
   onTechTileClick?: () => void;
   isFedTokenClickable?: boolean;
   onFedTokenClick?: () => void;
+  onArtifactClick?: (artifactCode: string) => void;
+  artifactClickable?: boolean;
+  disabledArtifacts?: Set<string>;
 }
 
-function SpaceshipCard({ ship, hasEntered, canAct, usedCodes, currentPlayerState, onActionClick, isTechTileClickable, onTechTileClick, isFedTokenClickable, onFedTokenClick }: SpaceshipCardProps) {
+function SpaceshipCard({ ship, hasEntered, canAct, usedCodes, currentPlayerState, onActionClick, isTechTileClickable, onTechTileClick, isFedTokenClickable, onFedTokenClick, onArtifactClick, artifactClickable, disabledArtifacts }: SpaceshipCardProps) {
   const bgImage = FLEET_IMAGES[ship.fleetCode];
   const layout = FLEET_LAYOUTS[ship.fleetCode];
 
@@ -607,7 +670,9 @@ function SpaceshipCard({ ship, hasEntered, canAct, usedCodes, currentPlayerState
             isClickable={isTechTileClickable} onClick={onTechTileClick} />
         )}
         {layout.artifacts && (
-          <ArtifactSlots artifacts={ship.artifacts} positions={layout.artifacts} />
+          <ArtifactSlots artifacts={ship.artifacts} positions={layout.artifacts}
+            onArtifactClick={artifactClickable ? onArtifactClick : undefined}
+            disabledArtifacts={disabledArtifacts} />
         )}
       </div>
     </div>
@@ -688,7 +753,14 @@ function ActionButtons({ layout, hasEntered, canAct, usedCodes, currentPlayerSta
     <>
       {layout.actions.map((config) => {
         const isUsed = usedCodes.has(config.code);
-        const affordable = !currentPlayerState || ResourceCalculator.canAfford(currentPlayerState, config.cost);
+        // 타클론: 브레인스톤이 bowl3에 있으면 +3 파워로 간주
+        let affordable = !currentPlayerState || ResourceCalculator.canAfford(currentPlayerState, config.cost);
+        if (!affordable && currentPlayerState && config.cost.power
+            && (currentPlayerState as any).factionCode === 'TAKLONS'
+            && (currentPlayerState as any).brainstoneBowl === 3) {
+          const effectivePower = (currentPlayerState.powerBowl3 ?? 0) + 3;
+          affordable = effectivePower >= config.cost.power;
+        }
         const canClick = hasEntered && canAct && !isUsed && affordable;
 
         return (
@@ -856,20 +928,24 @@ function FederationTokenSlot({ tokenCode, position, isClickable, onClick }: Fede
 interface ArtifactSlotsProps {
   artifacts: ArtifactSlot[];
   positions: SlotPosition[];
+  onArtifactClick?: (artifactCode: string) => void;
+  disabledArtifacts?: Set<string>;
 }
 
-function ArtifactSlots({ artifacts, positions }: ArtifactSlotsProps) {
+function ArtifactSlots({ artifacts, positions, onArtifactClick, disabledArtifacts }: ArtifactSlotsProps) {
   return (
     <>
       {positions.map((pos, idx) => {
         const artifact = artifacts.find((a) => a.slot === idx + 1);
         const hasArtifact = artifact?.artifactCode !== null;
         const imgSrc = artifact?.artifactCode ? ARTIFACT_IMAGE_MAP[artifact.artifactCode] : undefined;
+        const isDisabled = disabledArtifacts?.has(artifact?.artifactCode ?? '');
+        const canClick = onArtifactClick && hasArtifact && !artifact?.isTaken && !isDisabled && artifact?.artifactCode;
 
         return (
           <div
             key={idx}
-            className="absolute flex items-center justify-center"
+            className={`absolute flex items-center justify-center ${canClick ? 'cursor-pointer hover:brightness-125 z-10' : ''}`}
             style={{
               left: `${pos.left}%`,
               top: `${pos.top}%`,
@@ -877,24 +953,17 @@ function ArtifactSlots({ artifacts, positions }: ArtifactSlotsProps) {
               height: '35%',
               transform: 'translate(-50%, -50%)',
             }}
+            onClick={canClick ? () => onArtifactClick(artifact!.artifactCode!) : undefined}
           >
-            {hasArtifact && imgSrc ? (
+            {hasArtifact && !artifact?.isTaken && imgSrc ? (
               <img
                 src={imgSrc}
                 alt={artifact?.artifactCode || ''}
-                className={`w-full h-full object-contain ${artifact?.isTaken ? 'opacity-50 grayscale' : ''}`}
+                className="w-full h-full object-contain"
                 draggable={false}
                 title={artifact?.artifactCode || ''}
               />
-            ) : hasArtifact ? (
-              // fallback: 이미지 없을 때
-              <div className="w-full h-full rounded-full bg-purple-600 border-2 border-purple-300 flex items-center justify-center">
-                <span className="text-[8px] text-white font-bold">
-                  {artifact?.artifactCode}
-                </span>
-              </div>
             ) : (
-              // 빈 슬롯 (타원형)
               <div className="w-full h-full rounded-full border border-white/30 bg-black/20" />
             )}
           </div>

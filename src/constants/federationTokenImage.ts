@@ -12,6 +12,7 @@ import FED_EXP_TILE_5 from '@/assets/federation_token/FED_EXP_TILE_5.png';
 import FED_EXP_TILE_6 from '@/assets/federation_token/FED_EXP_TILE_6.png';
 import FED_EXP_TILE_7 from '@/assets/federation_token/FED_EXP_TILE_7.png';
 import FED_EXP_TILE_8 from '@/assets/federation_token/FED_EXP_TILE_8.png';
+import GLEENS_FEDERATION from '@/assets/federation_token/Gleen.png';
 
 export const FEDERATION_TOKEN_IMAGE_MAP: Record<string, string> = {
   FED_TILE_1,
@@ -28,4 +29,5 @@ export const FEDERATION_TOKEN_IMAGE_MAP: Record<string, string> = {
   FED_EXP_TILE_6,
   FED_EXP_TILE_7,
   FED_EXP_TILE_8,
+  GLEENS_FEDERATION,
 };

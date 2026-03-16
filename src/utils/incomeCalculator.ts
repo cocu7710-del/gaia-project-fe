@@ -123,6 +123,14 @@ const TECH_TILE_INCOME: Record<string, Partial<IncomeResult>> = {
 };
 
 // ─────────────────────────────────────────
+// 8. 인공물 수입 (INCOME 타입)
+// ─────────────────────────────────────────
+const ARTIFACT_INCOME: Record<string, Partial<IncomeResult>> = {
+  ARTIFACT_4: { powerToken: 2 },      // 3구역 파워 토큰 2 (bowl3에 추가 — 여기선 powerToken으로 근사)
+  ARTIFACT_5: { ore: 1, knowledge: 1 },
+};
+
+// ─────────────────────────────────────────
 // 메인: 수입 계산
 // ─────────────────────────────────────────
 export function calcIncome(
@@ -131,6 +139,7 @@ export function calcIncome(
   boosterCode: string | null,
   economyTrackOption: string | null,
   ownedTechTileCodes?: string[],
+  ownedArtifactCodes?: string[],
 ): IncomeResult {
   let result = { ...ZERO };
   const isOptionA = economyTrackOption !== 'OPTION_B';
@@ -169,6 +178,15 @@ export function calcIncome(
     for (const code of ownedTechTileCodes) {
       if (TECH_TILE_INCOME[code]) {
         result = add(result, TECH_TILE_INCOME[code]);
+      }
+    }
+  }
+
+  // 6. 인공물 수입 (INCOME 타입)
+  if (ownedArtifactCodes) {
+    for (const code of ownedArtifactCodes) {
+      if (ARTIFACT_INCOME[code]) {
+        result = add(result, ARTIFACT_INCOME[code]);
       }
     }
   }

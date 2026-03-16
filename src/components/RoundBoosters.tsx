@@ -126,7 +126,7 @@ export default function RoundBoosters({
               <div
                 key={booster.id}
                 className="flex flex-col items-center flex-1"
-                style={{ maxWidth: '14%' }}
+                style={{ maxWidth: '9%' }}
               >
                 {/* 부스터 이미지 */}
                 <button

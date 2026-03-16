@@ -38,13 +38,13 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
 
   const { roundScorings, finalScorings } = scoringData;
 
-  // 부채꼴 설정 (추가 1.5배 축소)
-  const svgWidth = 125;
-  const svgHeight = 71;
+  // 부채꼴 설정 (1.3배)
+  const svgWidth = 163;
+  const svgHeight = 92;
   const cx = svgWidth / 2;
-  const cy = svgHeight + 9; // 중심은 아래쪽 바깥
-  const radius = 80;
-  const innerRadius = 27;
+  const cy = svgHeight + 12; // 중심은 아래쪽 바깥
+  const radius = 104;
+  const innerRadius = 35;
   const totalAngle = 150; // 부채꼴 각도
   const startAngle = -165; // 시작 각도 (왼쪽 위)
   const anglePerSlot = totalAngle / 6;
@@ -98,7 +98,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
           height="auto"
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="overflow-visible"
-          style={{ maxHeight: '120px' }}
+          style={{ maxHeight: '156px' }}
         >
 
           {roundScorings.map((rs, idx) => {
@@ -120,10 +120,10 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
                 {imgSrc ? (
                   <image
                     href={imgSrc}
-                    x={slotInfo.x - 22}
-                    y={slotInfo.y - 30}
-                    width="44"
-                    height="60"
+                    x={slotInfo.x - 29}
+                    y={slotInfo.y - 39}
+                    width="57"
+                    height="78"
                     preserveAspectRatio="xMidYMid meet"
                     transform={`rotate(${slotInfo.rotation}, ${slotInfo.x}, ${slotInfo.y})`}
                   />
@@ -147,7 +147,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
       </div>
 
       {/* 최종 점수 타일 (가로 2슬롯) + 플레이어별 개수 */}
-      <div className="flex gap-2 justify-center mt-2 w-[50%] mx-auto">
+      <div className="flex gap-2 justify-center mt-2 mx-auto" style={{ width: 'min(95%, 286px)' }}>
         {finalScorings.map((fs) => {
           const imgSrc = FINAL_SCORING_IMAGE_MAP[fs.tileCode];
           // TODO: API에서 플레이어별 개수 데이터 연결

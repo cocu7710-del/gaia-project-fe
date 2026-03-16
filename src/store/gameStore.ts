@@ -73,6 +73,18 @@ function applyTrackAdvance(preview: PlayerStateResponse, trackCode: string): Pla
 }
 
 function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerStateResponse {
+  // 타클론 브레인스톤 프리 변환: brainstoneBowl 3→1, 파워 토큰 소모 없이 브레인스톤 가치만큼
+  if (code.endsWith('_BRAIN')) {
+    const base = code.replace('_BRAIN', '');
+    const bs = { ...preview, brainstoneBowl: 1 }; // 브레인스톤 bowl3→1
+    switch (base) {
+      case 'POWER_TO_CREDIT':    return { ...bs, credit: bs.credit + 3 }; // 3파워 = 3c
+      case 'POWER_TO_ORE':       return { ...bs, ore: bs.ore + 1 };       // 3파워 = 1o
+      case 'POWER_TO_KNOWLEDGE': return { ...bs, powerBowl3: bs.powerBowl3 - 1, powerBowl1: bs.powerBowl1 + 1, knowledge: bs.knowledge + 1 }; // 브레인(3)+일반(1)=4
+      case 'POWER_TO_QIC':       return addQicPreview({ ...bs, powerBowl3: bs.powerBowl3 - 1, powerBowl1: bs.powerBowl1 + 1 }, 1);
+      default: return preview;
+    }
+  }
   switch (code) {
     case 'ORE_TO_CREDIT':    return { ...preview, ore: preview.ore - 1, credit: preview.credit + 1 };
     case 'ORE_TO_TOKEN':     return { ...preview, ore: preview.ore - 1, powerBowl1: preview.powerBowl1 + 1 };
@@ -149,10 +161,61 @@ function calculatePreviewState(
     };
   }
   for (const act of actions) {
+    // TWILIGHT_ARTIFACT: 파워 6 소각 (bowl1→2→3 순 영구 제거) + 즉시 효과
+    if (act.type === 'FLEET_SHIP_ACTION' && (act.payload as any).actionCode === 'TWILIGHT_ARTIFACT') {
+      let rem = 6;
+      let b1 = preview.powerBowl1, b2 = preview.powerBowl2, b3 = preview.powerBowl3;
+      const f1 = Math.min(b1, rem); b1 -= f1; rem -= f1;
+      const f2 = Math.min(b2, rem); b2 -= f2; rem -= f2;
+      const f3 = Math.min(b3, rem); b3 -= f3;
+      preview = { ...preview, powerBowl1: b1, powerBowl2: b2, powerBowl3: b3 };
+      // 즉시 효과 프리뷰 (인공물 코드별 — payload에서 직접 읽기)
+      const artCode = (act.payload as any).artifactCode as string | undefined;
+      if (artCode) {
+        const ARTIFACT_IMMEDIATE: Record<string, { credit?: number; ore?: number; knowledge?: number; qic?: number; vp?: number }> = {
+          ARTIFACT_1: { knowledge: 3, qic: 1 },
+          ARTIFACT_2: { credit: 5, ore: 2 },
+          ARTIFACT_3: { credit: 3, ore: 3 },
+          ARTIFACT_7: { vp: 7 },
+          ARTIFACT_8: { vp: 7 },
+        };
+        const rew = ARTIFACT_IMMEDIATE[artCode];
+        if (rew) {
+          preview = {
+            ...preview,
+            credit: preview.credit + (rew.credit ?? 0),
+            ore: preview.ore + (rew.ore ?? 0),
+            knowledge: preview.knowledge + (rew.knowledge ?? 0),
+            qic: preview.qic + (rew.qic ?? 0),
+            victoryPoints: preview.victoryPoints + (rew.vp ?? 0),
+          };
+        }
+      }
+      continue;
+    }
     if (act.type === 'PLACE_MINE' || act.type === 'UPGRADE_BUILDING' ||
         act.type === 'POWER_ACTION' || act.type === 'FLEET_PROBE' || act.type === 'ADVANCE_TECH' ||
         act.type === 'FLEET_SHIP_ACTION') {
-      preview = ResourceCalculator.applyResourceCost(preview, act.payload.cost);
+      // 타클론 브레인스톤 사용 시: bowl3 대신 brainstoneBowl 이동
+      if (act.payload.useBrainstone && preview.brainstoneBowl === 3 && act.payload.cost?.power) {
+        const powerCost = act.payload.cost.power;
+        const brainstonePower = 3;
+        const extraNeeded = Math.max(0, powerCost - brainstonePower);
+        preview = {
+          ...preview,
+          brainstoneBowl: 1,
+          powerBowl3: preview.powerBowl3 - extraNeeded,
+          powerBowl1: preview.powerBowl1 + extraNeeded,
+          // 나머지 비용 (power 외)
+          credit: preview.credit - (act.payload.cost.credit || 0),
+          ore: preview.ore - (act.payload.cost.ore || 0),
+          knowledge: preview.knowledge - (act.payload.cost.knowledge || 0),
+          qic: preview.qic - (act.payload.cost.qic || 0),
+          victoryPoints: preview.victoryPoints - (act.payload.cost.vp || 0),
+        };
+      } else {
+        preview = ResourceCalculator.applyResourceCost(preview, act.payload.cost);
+      }
     }
     if (act.type === 'PLACE_MINE' && act.payload.gaiaformerUsed) {
       preview = { ...preview, stockGaiaformer: preview.stockGaiaformer - 1 };
@@ -179,7 +242,13 @@ function calculatePreviewState(
       const toType = act.payload.toType;
       if (toType === 'TRADING_STATION') preview = { ...preview, stockTradingStation: Math.max(0, preview.stockTradingStation - 1), stockMine: preview.stockMine + 1 };
       else if (toType === 'RESEARCH_LAB') preview = { ...preview, stockResearchLab: Math.max(0, preview.stockResearchLab - 1), stockTradingStation: preview.stockTradingStation + 1 };
-      else if (toType === 'PLANETARY_INSTITUTE') preview = { ...preview, stockPlanetaryInstitute: Math.max(0, preview.stockPlanetaryInstitute - 1), stockTradingStation: preview.stockTradingStation + 1 };
+      else if (toType === 'PLANETARY_INSTITUTE') {
+        preview = { ...preview, stockPlanetaryInstitute: Math.max(0, preview.stockPlanetaryInstitute - 1), stockTradingStation: preview.stockTradingStation + 1 };
+        // 글린 PI: 전용 연방 토큰 즉시 보상 2c+1o+1k
+        if (preview.factionCode === 'GLEENS') {
+          preview = { ...preview, credit: preview.credit + 2, ore: preview.ore + 1, knowledge: preview.knowledge + 1 };
+        }
+      }
       else if (toType === 'ACADEMY') preview = { ...preview, stockAcademy: Math.max(0, preview.stockAcademy - 1), stockResearchLab: preview.stockResearchLab + 1 };
     }
     if ((act.type === 'POWER_ACTION') && act.payload.gain) {
@@ -287,6 +356,7 @@ interface GameState {
   gamePhase: string | null;
   nextSetupSeatNo: number | null;
   currentTurnSeatNo: number | null;
+  roundFirstSeatNo: number | null;
   economyTrackOption: string | null;
   tinkeroidsExtraRingPlanet: string | null;
   moweidsExtraRingPlanet: string | null;
@@ -332,7 +402,9 @@ interface GameState {
   } | null;
 
   // 연방 그룹 데이터 (건물/토큰 위치)
-  federationGroups: Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][] }>;
+  federationGroups: Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][]; used?: boolean }>;
+  // 인공물 (트와일라잇 — 획득자 포함)
+  gameArtifacts: Array<{ artifactCode: string; position: number; isTaken: boolean; acquiredByPlayerId: string | null }>;
 
   // 팅커로이드 액션 타일 선택 (라운드 시작 시)
   tinkeroidsActionChoice: {
@@ -346,6 +418,10 @@ interface GameState {
     itarsPlayerId: string;
     availableChoices: number;
     tilePicking: boolean; // true: 기술타일 선택 모드 (TechTracks에서 선택)
+  } | null;
+  terransGaiaChoice: {
+    terransPlayerId: string;
+    gaiaPower: number;
   } | null;
 
   // 함대 선박 액션: hex/track 선택 대기 모드
@@ -393,7 +469,7 @@ interface GameState {
   // 턴 확정 시스템 액션
   initializeTurn: (playerState: PlayerStateResponse) => void;
   addPendingAction: (action: GameAction) => void;
-  clearPendingActions: () => void;
+  clearPendingActions: (keepPreview?: boolean) => void;
   addTentativeBuilding: (building: GameBuilding) => void;
   setTentativeBooster: (boosterCode: string | null) => void;
   updatePreviewState: () => void;
@@ -427,9 +503,11 @@ interface GameState {
 
   // 아이타 가이아 선택
   setItarsGaiaChoice: (data: GameState['itarsGaiaChoice']) => void;
+  setTerransGaiaChoice: (data: GameState['terransGaiaChoice']) => void;
 
   // 연방 그룹
   setFederationGroups: (groups: GameState['federationGroups']) => void;
+  setGameArtifacts: (artifacts: GameState['gameArtifacts']) => void;
 
   // 패스 순서 추적
   passedSeatNos: number[];
@@ -447,6 +525,7 @@ const initialState = {
   gamePhase: null,
   nextSetupSeatNo: null,
   currentTurnSeatNo: null,
+  roundFirstSeatNo: null,
   economyTrackOption: null,
   tinkeroidsExtraRingPlanet: null,
   moweidsExtraRingPlanet: null,
@@ -461,8 +540,10 @@ const initialState = {
   federationMode: null,
   leechBatch: null,
   federationGroups: [],
+  gameArtifacts: [],
   tinkeroidsActionChoice: null,
   itarsGaiaChoice: null,
+  terransGaiaChoice: null,
   passedSeatNos: [],
   selectingPassBooster: false,
   tentativeTechTileCode: null,
@@ -576,7 +657,7 @@ export const useGameStore = create<GameState>((set) => ({
       };
     }),
 
-  clearPendingActions: () =>
+  clearPendingActions: (keepPreview?: boolean) =>
     set((state) => ({
       fleetShipMode: null,
       federationMode: null,
@@ -585,9 +666,15 @@ export const useGameStore = create<GameState>((set) => ({
       turnState: {
         ...state.turnState,
         pendingActions: [],
-        previewPlayerState: state.turnState.originalPlayerState
-          ? { ...state.turnState.originalPlayerState }
-          : null,
+        // keepPreview=true: 확정 성공 후 프리뷰 유지 (WS 이벤트로 갱신될 때까지)
+        previewPlayerState: keepPreview
+          ? state.turnState.previewPlayerState
+          : state.turnState.originalPlayerState
+            ? { ...state.turnState.originalPlayerState }
+            : null,
+        originalPlayerState: keepPreview
+          ? state.turnState.previewPlayerState
+          : state.turnState.originalPlayerState,
         tentativeBuildings: [],
         tentativeBooster: null,
         burnPowerCount: 0,
@@ -784,8 +871,10 @@ export const useGameStore = create<GameState>((set) => ({
   setTinkeroidsActionChoice: (data) => set({ tinkeroidsActionChoice: data }),
 
   setItarsGaiaChoice: (data) => set({ itarsGaiaChoice: data }),
+  setTerransGaiaChoice: (data) => set({ terransGaiaChoice: data }),
 
   setFederationGroups: (groups) => set({ federationGroups: groups }),
+  setGameArtifacts: (artifacts) => set({ gameArtifacts: artifacts }),
 
   addPassedSeatNo: (seatNo) => set((state) => ({
     passedSeatNos: state.passedSeatNos.includes(seatNo)

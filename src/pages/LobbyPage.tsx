@@ -5,6 +5,7 @@ import { roomApi, mapApi, buildingApi, fleetApi } from '../api/client';
 import type { BoosterOfferResponse, PlayerStateResponse } from '../api/client';
 import { PowerLeechDialog } from '../components/PowerLeechDialog';
 import { ItarsGaiaChoiceDialog } from '../components/ItarsGaiaChoiceDialog';
+import { TerransGaiaDialog } from '../components/TerransGaiaDialog';
 import { TinkeroidsActionChoiceDialog } from '../components/TinkeroidsActionChoiceDialog';
 import { getTerraformDiscount } from '../utils/terraformingCalculator';
 import type { FleetShipAction, DeployGaiaformerAction } from '../types/turnActions';
@@ -174,14 +175,15 @@ export default function LobbyPage() {
 
         case 'TURN_CHANGED':
           setCurrentTurnSeatNo(event.payload.newTurnSeatNo as number | null);
-          clearPendingActions();
           if (roomId) {
             const [playerRes3, buildingRes3, hexRes3] = await Promise.all([
               roomApi.getPlayerStates(roomId),
               buildingApi.getBuildings(roomId),
               mapApi.getHexes(roomId),
             ]);
+            // BE 상태 먼저 반영 후 pendingActions 클리어 (깜빡임 방지)
             setPlayerStates(playerRes3.data);
+            clearPendingActions();
             setBuildings(buildingRes3.data);
             setHexes(hexRes3.data);
             setTechRefreshKey(k => k + 1);
@@ -194,10 +196,10 @@ export default function LobbyPage() {
         case 'PLAYER_PASSED':
           if (roomId) {
             const allPassedFlag = event.payload.allPassed as boolean;
-            // seatNo가 payload에 있으면 사용, 없으면 playerId로 store seats에서 찾기
+            // seatNo 직접 사용, 없으면 playerId로 찾기
             const currentSeats = useGameStore.getState().seats;
             const passedSeatNo = (event.payload.seatNo as number | undefined)
-              ?? currentSeats.find(s => s.playerId === event.playerId)?.seatNo;
+              ?? currentSeats.find(s => s.playerId === (event.payload.playerId as string))?.seatNo;
             if (passedSeatNo != null) useGameStore.getState().addPassedSeatNo(passedSeatNo);
             await loadBoosters();
             const playerRes5 = await roomApi.getPlayerStates(roomId);
@@ -212,7 +214,6 @@ export default function LobbyPage() {
           break;
 
         case 'ROUND_STARTED':
-          clearPendingActions();
           useGameStore.getState().clearPassedSeatNos();
           setItarsGaiaChoice(null);
           setTinkeroidsActionChoice(null);
@@ -224,7 +225,10 @@ export default function LobbyPage() {
               buildingApi.getBuildings(roomId),
             ]);
             setPublicState(stateRes3.data);
+            // 라운드 첫 번째 플레이어 기억 (플레이어 판 순서 고정용)
+            useGameStore.setState({ roundFirstSeatNo: stateRes3.data.currentTurnSeatNo });
             setPlayerStates(playerRes4.data);
+            clearPendingActions();
             setHexes(hexRes2.data);
             setBuildings(buildingRes4.data);
             await loadBoosters();
@@ -238,6 +242,15 @@ export default function LobbyPage() {
             tinkeroidsPlayerId: tinkPayload.tinkeroidsPlayerId as string,
             availableActions: tinkPayload.availableActions as string[],
             currentRound: tinkPayload.currentRound as number,
+          });
+          break;
+        }
+
+        case 'TERRANS_GAIA_CHOICE': {
+          const terransPayload = event.payload;
+          useGameStore.getState().setTerransGaiaChoice({
+            terransPlayerId: terransPayload.terransPlayerId as string,
+            gaiaPower: terransPayload.gaiaPower as number,
           });
           break;
         }
@@ -390,6 +403,10 @@ export default function LobbyPage() {
         // 1. 공개 상태 조회
         const stateRes = await roomApi.getPublicState(roomId);
         setPublicState(stateRes.data);
+        // 새로고침 시 roundFirstSeatNo 복원 (없으면 현재 턴으로)
+        if (!useGameStore.getState().roundFirstSeatNo && stateRes.data.currentTurnSeatNo) {
+          useGameStore.setState({ roundFirstSeatNo: stateRes.data.currentTurnSeatNo });
+        }
 
         // 2. 맵 헥스 조회
         const hexRes = await mapApi.getHexes(roomId);
@@ -621,7 +638,10 @@ export default function LobbyPage() {
       // 프리 액션 자원 변환 처리
       if (turnState.freeConvertActions && turnState.freeConvertActions.length > 0) {
         for (const code of turnState.freeConvertActions) {
-          await roomApi.freeConvert(roomId, playerId, code);
+          // _BRAIN 접미사: 브레인스톤 사용
+          const isBrain = code.endsWith('_BRAIN');
+          const realCode = isBrain ? code.replace('_BRAIN', '') : code;
+          await roomApi.freeConvert(roomId, playerId, realCode, isBrain || undefined);
         }
       }
 
@@ -670,6 +690,12 @@ export default function LobbyPage() {
           const res = await roomApi.useFactionAbility(roomId, playerId, 'AMBAS_SWAP',
             undefined, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
           if (!res.data.success) { setConfirmError(res.data.message || '엠바스 교환 실패'); return; }
+
+        // 모웨이드 PI: 링 씌우기
+        } else if (factionAbilityAction?.payload?.abilityCode === 'MOWEIDS_RING' && factionAbilityAction.payload.hexQ != null) {
+          const res = await roomApi.useFactionAbility(roomId, playerId, 'MOWEIDS_RING',
+            undefined, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
+          if (!res.data.success) { setConfirmError(res.data.message || '모웨이드 링 실패'); return; }
 
         // 팅커로이드: 즉시 효과 액션 사용
         } else if (factionAbilityAction?.payload?.abilityCode === 'TINKEROIDS_USE_ACTION') {
@@ -749,7 +775,7 @@ export default function LobbyPage() {
 
         } else if (powerAction && mineAction) {
           // 파워 테라포밍 액션 + 광산 건설 콤보
-          const pwrRes = await roomApi.usePowerAction(roomId, playerId, powerAction.payload.powerActionCode);
+          const pwrRes = await roomApi.usePowerAction(roomId, playerId, powerAction.payload.powerActionCode, powerAction.payload.useBrainstone);
           if (!pwrRes.data.success) { setConfirmError(pwrRes.data.message || '파워 액션 실패'); return; }
           const qicUsed = mineAction.payload.cost?.qic ?? 0;
           const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
@@ -775,7 +801,7 @@ export default function LobbyPage() {
 
         } else if (firstAction.type === 'POWER_ACTION') {
           const code: string = firstAction.payload.powerActionCode;
-          const res = await roomApi.usePowerAction(roomId, playerId, code);
+          const res = await roomApi.usePowerAction(roomId, playerId, code, firstAction.payload.useBrainstone);
           if (!res.data.success) { setConfirmError(res.data.message || '파워 액션 실패'); return; }
 
         } else if (firstAction.type === 'FLEET_PROBE') {
@@ -797,9 +823,12 @@ export default function LobbyPage() {
           // REBELLION_TECH / TWILIGHT_UPGRADE: tentativeTechTileCode/TrackCode에서 타일+트랙 코드 읽기
           const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack } = useGameStore.getState();
           const needsTile = fsa.payload.actionCode === 'REBELLION_TECH' || fsa.payload.actionCode === 'TWILIGHT_UPGRADE';
+          const needsArtifact = fsa.payload.actionCode === 'TWILIGHT_ARTIFACT';
           const trackCode = needsTile
             ? techTile ?? undefined
-            : fsa.payload.trackCode;
+            : needsArtifact
+              ? techTile ?? undefined  // 인공물 코드를 tentativeTechTileCode에 저장
+              : fsa.payload.trackCode;
           const techTrackCode = needsTile
             ? techTrack ?? undefined
             : undefined;
@@ -838,7 +867,7 @@ export default function LobbyPage() {
         }
       }
 
-      clearPendingActions();
+      clearPendingActions(true);  // 프리뷰 유지 (WS 이벤트로 갱신될 때까지 깜빡임 방지)
       setTechRefreshKey(k => k + 1);
 
     } catch (err: any) {
@@ -872,7 +901,7 @@ export default function LobbyPage() {
       const res = await roomApi.passRound(roomId, playerId, boosterCode);
       if (res.data.success) {
         setSelectingPassBooster(false);
-        clearPendingActions();
+        clearPendingActions(true);  // 프리뷰 유지
         // 내 패스 순서 기록
         if (mySeatNo != null) useGameStore.getState().addPassedSeatNo(mySeatNo);
         // WebSocket 이벤트(TURN_CHANGED/ROUND_STARTED)로 갱신
@@ -938,7 +967,7 @@ export default function LobbyPage() {
       {/* 메인 컨텐츠 - 3열 구조, 뷰포트에 꽉 맞춤 */}
       <div className="flex gap-1.5" style={{ height: 'calc(100vh - 36px)' }}>
         {/* 좌측: 플레이어 보드 + 확정 + 지식트랙 + 점수 */}
-        <div className="w-[25%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
+        <div className="w-[30%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
           <SeatSelector
             seats={seats}
             mySeatNo={mySeatNo}
@@ -994,10 +1023,10 @@ export default function LobbyPage() {
         </div>
 
         {/* 중앙: 맵 */}
-        <div className="w-[50%] min-h-0 min-w-0 overflow-hidden pb-2 relative">
+        <div className="w-[40%] min-h-0 min-w-0 overflow-hidden pb-2 relative">
           <HexMap roomId={roomId!} playerStates={playerStates} seats={seats} />
-          {/* 초기화/확정/패스 - 맵 좌측 하단 오버레이 */}
-          <div className="absolute bottom-3 left-2 z-20" style={{ width: '100px' }}>
+          {/* 초기화/확정/패스 - 맵 우측 상단 오버레이 (메시지 배너 아래) */}
+          <div className="absolute top-10 right-2 z-20" style={{ width: '100px' }}>
             <TurnConfirmationPanel
               isMyTurn={isMyTurn}
               gamePhase={gamePhase}
@@ -1016,10 +1045,11 @@ export default function LobbyPage() {
         </div>
 
         {/* 우측: 함대 + 파워 + 연방 + 부스터 */}
-        <div className="w-[25%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
+        <div className="w-[30%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
           <FederationTiles
             roomId={roomId!}
             playerStates={playerStates}
+            refreshKey={techRefreshKey}
           />
           <PowerActions
             roomId={roomId!}
@@ -1079,6 +1109,9 @@ export default function LobbyPage() {
       {/* 아이타 가이아→기술타일 선택 다이얼로그 */}
       {currentPlayerId && (
         <ItarsGaiaChoiceDialog roomId={roomId!} myPlayerId={currentPlayerId} />
+      )}
+      {currentPlayerId && (
+        <TerransGaiaDialog roomId={roomId!} myPlayerId={currentPlayerId} />
       )}
     </div>
   );

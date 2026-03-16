@@ -209,7 +209,7 @@ function RemovedPomerPanel({
   if (players.length === 0) return null;
 
   return (
-    <div className="absolute top-2 right-2 bg-gray-800/90 p-2 rounded text-[10px] z-10">
+    <div className="absolute bottom-2 left-2 bg-gray-800/90 p-2 rounded text-[10px] z-10">
       <div className="flex items-center gap-1 font-bold text-purple-300 mb-1">
         <img src={pomerImg} className="w-3 h-3" />
         <span>영구제거</span>
@@ -542,6 +542,13 @@ function HexTile({
           buildingOwnerBorderColor ?? '#ffffff',
         )}
 
+        {/* 모웨이드 링: 초월행성 색상(시안) 원형 테두리 */}
+        {building?.hasRing && (
+          <circle cx={x} cy={y} r={HEX_SIZE * 0.55} fill="none"
+            stroke="#06b6d4" strokeWidth="2.5" strokeDasharray="4,2"
+            opacity={0.9} pointerEvents="none" />
+        )}
+
         {/* 란티다 기생 광산: 오른쪽 위에 1/3 크기 */}
         {lantidsParasite && (() => {
           const pr = HEX_SIZE * 0.38 * 0.55;
@@ -822,7 +829,11 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
         const ambasPending = pending.some(
           a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'AMBAS_SWAP' && !(a.payload as any).hexQ
         );
-const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster && !ivitsStationPending && !firaksPending && !ambasPending;
+        // 모웨이드 링: 건물 선택 대기 (hexQ 미설정)
+        const moweidsRingPending = pending.some(
+          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'MOWEIDS_RING' && !(a.payload as any).hexQ
+        );
+const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster && !ivitsStationPending && !firaksPending && !ambasPending && !moweidsRingPending;
 
         // 하이브 우주정거장: EMPTY 헥스 + 항법 거리 이내
         if (ivitsStationPending) {
@@ -848,6 +859,12 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
           return building?.playerId === playerId && building?.buildingType === 'MINE';
         }
 
+        // 모웨이드 링: 내 건물 (링 없는) 클릭 가능
+        if (moweidsRingPending) {
+          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
+          return !!building && building.playerId === playerId && !(building as any).hasRing;
+        }
+
         // 함대 헥스 (FORGOTTEN_FLEET_*)
         const sectorId = getSectorIdFromHex(hex);
         if (sectorId?.startsWith('FORGOTTEN_FLEET_')) {
@@ -856,6 +873,11 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
           if (gamePhase !== 'PLAYING') return false;
           const fleetName = sectorId.replace('FORGOTTEN_FLEET_', '');
           if (playerId && (fleetProbes[fleetName] || []).includes(playerId)) return false;
+          // 플레이어당 최대 3개 함대 입장 제한
+          if (playerId) {
+            const myFleetCount = Object.values(fleetProbes).filter(ids => ids.includes(playerId)).length;
+            if (myFleetCount >= 3) return false;
+          }
           const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
           if (!myState || myState.victoryPoints < 5) return false;
           // 항법 거리 체크 (광산과 동일: navRange + navBonus, QIC로 추가 확장 가능)
@@ -882,8 +904,8 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
 
         const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
 
-        // TRANSDIM → 가이아포머 배치 (테라포밍/항법 보너스 pending 중엔 불가)
-        if (hex.planetType === 'TRANSDIM' && !building && gamePhase === 'PLAYING' && !hasPendingTerraform && !hasPendingNavBoost) {
+        // TRANSDIM → 가이아포머 배치 (테라포밍 pending 중엔 불가, 항법 보너스 중엔 가능)
+        if (hex.planetType === 'TRANSDIM' && !building && gamePhase === 'PLAYING' && !hasPendingTerraform) {
           const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
           if (!myState || myState.stockGaiaformer < 1) return false;
           const gaiaLevel = myState.techGaia;
@@ -913,8 +935,8 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
             if (!myState) return false;
             return myState.credit >= 2 && myState.ore >= 1;
           }
-          // 이미 건물 있는 헥스
-          if (gamePhase === 'PLAYING' && building.playerId === playerId && !hasPendingTerraform) {
+          // 이미 건물 있는 헥스 (navBoost/terraform pending 중엔 업그레이드 불가)
+          if (gamePhase === 'PLAYING' && building.playerId === playerId && !hasPendingTerraform && !hasPendingNavBoost) {
             const options = UPGRADE_OPTIONS[building.buildingType];
             if (!options) return false;
             const myState = turnState.previewPlayerState || playerStates.find(p => p.seatNo === mySeatNo);
@@ -1120,6 +1142,20 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
           return;
         }
 
+        // 모웨이드 링: 건물 클릭 시 좌표 기록
+        const moweidsRingPendingClick = pending.find(
+          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'MOWEIDS_RING' && !(a.payload as any).hexQ
+        );
+        if (moweidsRingPendingClick) {
+          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
+          if (building?.playerId === playerId && !(building as any).hasRing) {
+            (moweidsRingPendingClick.payload as any).hexQ = hex.hexQ;
+            (moweidsRingPendingClick.payload as any).hexR = hex.hexR;
+            updatePreviewState();
+          }
+          return;
+        }
+
         // 테라포밍/항법 보너스 액션 이외의 경우 이미 다른 액션이 있으면 차단
         if (pending.length > 0 && !hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster) {
           alert('이미 액션을 선택했습니다. 확정하거나 초기화하세요.');
@@ -1253,8 +1289,8 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
 
         // --- PLAYING 페이즈 ---
         if (gamePhase === 'PLAYING') {
-          // 내 건물 클릭 → 업그레이드 (테라포밍 pending 중엔 불가)
-          if (building && building.playerId === playerId && !hasPendingTerraform) {
+          // 내 건물 클릭 → 업그레이드 (테라포밍/항법 보너스 pending 중엔 불가)
+          if (building && building.playerId === playerId && !hasPendingTerraform && !hasPendingNavBoost) {
             const fromType = building.buildingType;
             const options = UPGRADE_OPTIONS[fromType];
             if (!options) return;
@@ -1486,6 +1522,10 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
                   message = '전진할 지식 트랙을 선택하세요.';
                 } else if (abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK' && !(faAction?.payload as any)?.trackCode) {
                   message = '전진할 최저 지식 트랙을 선택하세요.';
+                } else if (abilityCode === 'MOWEIDS_RING' && !(faAction?.payload as any)?.hexQ) {
+                  message = '링을 씌울 건물을 선택하세요.';
+                } else if (abilityCode === 'MOWEIDS_RING') {
+                  message = '건물에 링 씌우기 — 확정하세요.';
                 } else if (td && td > 0) {
                   message = `종족 능력 테라포밍 ${td}단계 할인 적용 — 행동을 선택하세요.`;
                 } else if (nb && nb > 0) {
@@ -1496,12 +1536,38 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
               } else {
                 message = '행동을 선택하세요.';
               }
+            } else if (pending.some(a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT')) {
+              message = '인공물 타일을 획득합니다. 확정을 눌러주세요. (파워 6 소각)';
+            } else if (pending.some(a => a.type === 'POWER_ACTION')) {
+              const pwrAct = pending.find(a => a.type === 'POWER_ACTION');
+              message = `${pwrAct?.payload.description ?? '파워 액션'} — 확정을 눌러주세요.`;
+            } else if (pending.some(a => a.type === 'PLACE_MINE')) {
+              message = '광산 건설 — 확정을 눌러주세요.';
+            } else if (pending.some(a => a.type === 'UPGRADE_BUILDING')) {
+              const upAct = pending.find(a => a.type === 'UPGRADE_BUILDING');
+              message = `건물 업그레이드 (${upAct?.payload.toType}) — 확정을 눌러주세요.`;
+            } else if (pending.some(a => a.type === 'ADVANCE_TECH')) {
+              message = '기술 트랙 전진 — 확정을 눌러주세요.';
+            } else if (pending.some(a => a.type === 'FLEET_PROBE')) {
+              message = '함대 입장 — 확정을 눌러주세요.';
+            } else if (pending.some(a => a.type === 'FLEET_SHIP_ACTION')) {
+              const fsa = pending.find(a => a.type === 'FLEET_SHIP_ACTION');
+              message = `함대 액션 (${(fsa?.payload as any)?.actionCode}) — 확정을 눌러주세요.`;
+            } else if (pending.some(a => a.type === 'DEPLOY_GAIAFORMER')) {
+              message = '가이아포머 배치 — 확정을 눌러주세요.';
+            } else if (pending.some(a => a.type === 'TECH_TILE_ACTION')) {
+              message = '기술 타일 액션 — 확정을 눌러주세요.';
+            } else if (pending.some(a => a.type === 'FORM_FEDERATION')) {
+              message = '연방 형성 — 확정을 눌러주세요.';
+            } else if (pending.length > 0) {
+              message = '액션 선택 완료 — 확정을 눌러주세요.';
             } else {
               message = '당신의 차례입니다! 행동을 선택하세요.';
             }
 
+            const hasAction = pending.length > 0 || needsFleetHex;
             return (
-              <div className="mb-1 p-1 bg-yellow-600 text-black rounded text-center text-sm font-semibold">
+              <div className={`mb-1 p-1 rounded text-center text-sm font-semibold ${hasAction ? 'bg-emerald-600 text-white' : 'bg-yellow-600 text-black'}`}>
                 {message}
               </div>
             );
@@ -1736,6 +1802,8 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
                 powerBowl3={myPS?.powerBowl3 ?? 0}
                 knowledge={myPS?.knowledge ?? 0}
                 interactive={!!myPS && isMyTurn}
+                factionCode={myPS?.factionCode}
+                brainstoneBowl={myPS?.brainstoneBowl}
               />
             </div>
           );

@@ -169,8 +169,10 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
   const [pickingTrackFor, setPickingTrackFor] = useState<string | null>(null);
 
   // 함대 기술타일 선택 시 (tentativeTechTileCode 있고 trackCode null) → 트랙 클릭 대기
+  // 인공물 코드(ARTIFACT_*)는 트랙 선택 불필요 — 제외
   useEffect(() => {
-    if (tentativeTechTileCode && tentativeTechTrackCode === null && !pickingTrackFor) {
+    if (tentativeTechTileCode && tentativeTechTrackCode === null && !pickingTrackFor
+        && !tentativeTechTileCode.startsWith('ARTIFACT_')) {
       setPickingTrackFor(tentativeTechTileCode);
     }
   }, [tentativeTechTileCode, tentativeTechTrackCode]);
@@ -565,10 +567,10 @@ function TrackColumn({
     return (
       <div
         key={level.level}
-        className={`${bgColor} flex flex-col items-center overflow-hidden px-0.5
+        className={`${bgColor} flex flex-col items-center justify-center overflow-hidden px-0.5
           ${isMyLevel ? 'ring-1 ring-inset ring-yellow-400' : ''}
         `}
-        style={{ minHeight: '18px' }}
+        style={{ minHeight: '29px' }}
         title={levelNum === 5 ? `${level.description}\n(연방 토큰 1개 필요)` : level.description}
       >
         {/* 보상 아이콘 — 테라포밍 5단계는 실제 연방 토큰 이미지 */}
@@ -578,7 +580,7 @@ function TrackColumn({
               <img
                 src={FEDERATION_TOKEN_IMAGE_MAP[terraFedTile.tileCode]}
                 alt={terraFedTile.tileCode}
-                className="max-h-[16px] w-auto object-contain"
+                className="max-h-[31px] w-auto object-contain"
                 draggable={false}
                 title={terraFedTile.description}
               />
@@ -597,7 +599,7 @@ function TrackColumn({
 
         {/* 플레이어 마커 */}
         {players.length > 0 && (
-          <div className="flex items-center gap-px">
+          <div className="flex items-center self-start gap-px">
             {players.map((ps) => {
               const planetType = getPlanetTypeFromFaction(ps.factionCode);
               return (

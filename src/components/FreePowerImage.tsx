@@ -8,6 +8,8 @@ interface Props {
   powerBowl3: number;
   knowledge: number;
   interactive?: boolean;
+  factionCode?: string | null;
+  brainstoneBowl?: number | null;
 }
 
 const BUTTONS: {
@@ -33,12 +35,17 @@ const BUTTONS: {
   { code: 'ORE_TO_TOKEN',        label: '1광석 → 1토큰',  left: 2, top: 85.75, w: 96, h: 10.8, costOre: 1 },
 ];
 
-export default function FreePowerImage({ ore, qic, powerBowl3, knowledge, interactive = true }: Props) {
+export default function FreePowerImage({ ore, qic, powerBowl3, knowledge, interactive = true, factionCode, brainstoneBowl }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
   const addFreeConvert = useGameStore(s => s.addFreeConvert);
 
+  const isTaklonsBrain3 = factionCode === 'TAKLONS' && brainstoneBowl === 3;
+
   const isDisabled = (btn: typeof BUTTONS[0]) => {
-    if (btn.costPower && powerBowl3 < btn.costPower) return true;
+    if (btn.costPower) {
+      const effectivePower = powerBowl3 + (isTaklonsBrain3 ? 3 : 0);
+      if (effectivePower < btn.costPower) return true;
+    }
     if (btn.costOre && ore < btn.costOre) return true;
     if (btn.costKnowledge && knowledge < btn.costKnowledge) return true;
     if (btn.costQic && qic < btn.costQic) return true;
@@ -58,7 +65,25 @@ export default function FreePowerImage({ ore, qic, powerBowl3, knowledge, intera
         return (
           <button
             key={key}
-            onClick={() => !disabled && addFreeConvert(btn.code)}
+            onClick={() => {
+              if (disabled) return;
+              // 타클론: 파워 변환 시 브레인스톤 사용 확인
+              if (btn.costPower && isTaklonsBrain3) {
+                const canWithout = powerBowl3 >= btn.costPower;
+                const canWith = (powerBowl3 + 3) >= btn.costPower;
+                if (canWith && !canWithout) {
+                  // 브레인스톤 없이 불가 → 자동 사용
+                  addFreeConvert(btn.code + '_BRAIN');
+                  return;
+                } else if (canWith && canWithout) {
+                  if (confirm('브레인스톤을 사용하시겠습니까?')) {
+                    addFreeConvert(btn.code + '_BRAIN');
+                    return;
+                  }
+                }
+              }
+              addFreeConvert(btn.code);
+            }}
             onMouseEnter={() => setHovered(key)}
             onMouseLeave={() => setHovered(null)}
             title={btn.label}

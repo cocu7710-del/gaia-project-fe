@@ -110,8 +110,15 @@ export function calcMineCost(
   const afford = (cost: ResourceCost) => ResourceCalculator.canAfford(myState, cost);
 
   // 가이아 행성 (GAIA) - 모든 종족 가능
+  // 글린: QIC 대신 ORE 1 추가 (QIC 아카데미 건설 전까지 QIC→ORE 변환)
   // 기본 종족 + 모웨이드: 1 QIC 추가, 나머지 확장 종족: 2 QIC 추가
   if (targetPlanetType === 'GAIA') {
+    if (myFactionCode === 'GLEENS') {
+      // 글린: 가이아 입장 비용 QIC → ORE
+      const totalOre = BASE_ORE + 1;
+      const cost = { credit: BASE_CREDIT, ore: totalOre, qic: navQic };
+      return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 0 };
+    }
     const gaiaQic = (EXPANSION_FACTIONS.has(myFactionCode) && myFactionCode !== 'MOWEIDS') ? 2 : 1;
     const totalQic = gaiaQic + navQic;
     const cost = { credit: BASE_CREDIT, ore: BASE_ORE, qic: totalQic };
