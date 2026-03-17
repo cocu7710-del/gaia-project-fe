@@ -89,10 +89,27 @@ function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerSta
     case 'ORE_TO_CREDIT':    return { ...preview, ore: preview.ore - 1, credit: preview.credit + 1 };
     case 'ORE_TO_TOKEN':     return { ...preview, ore: preview.ore - 1, powerBowl1: preview.powerBowl1 + 1 };
     case 'ORE_TO_POWER3':   return { ...preview, ore: preview.ore - 1, powerBowl3: preview.powerBowl3 + 1 };
-    case 'POWER_TO_CREDIT':  return { ...preview, powerBowl3: preview.powerBowl3 - 1, powerBowl1: preview.powerBowl1 + 1, credit: preview.credit + 1 };
-    case 'POWER_TO_ORE':     return { ...preview, powerBowl3: preview.powerBowl3 - 3, powerBowl1: preview.powerBowl1 + 3, ore: preview.ore + 1 };
-    case 'POWER_TO_KNOWLEDGE': return { ...preview, powerBowl3: preview.powerBowl3 - 4, powerBowl1: preview.powerBowl1 + 4, knowledge: preview.knowledge + 1 };
-    case 'POWER_TO_QIC':     return addQicPreview({ ...preview, powerBowl3: preview.powerBowl3 - 4, powerBowl1: preview.powerBowl1 + 4 }, 1);
+    case 'POWER_TO_CREDIT': {
+      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      // 네블라 PI: 1토큰=2파워=2c, 일반: 1토큰=1파워=1c
+      const tokens = 1;
+      return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, credit: preview.credit + (npi ? 2 : 1) };
+    }
+    case 'POWER_TO_ORE': {
+      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const tokens = npi ? 2 : 3; // 네블라: 2토큰=4파워≥3, 일반: 3토큰
+      return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, ore: preview.ore + 1 };
+    }
+    case 'POWER_TO_KNOWLEDGE': {
+      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const tokens = npi ? 2 : 4; // 네블라: 2토큰=4파워, 일반: 4토큰
+      return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, knowledge: preview.knowledge + 1 };
+    }
+    case 'POWER_TO_QIC': {
+      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const tokens = npi ? 2 : 4;
+      return addQicPreview({ ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens }, 1);
+    }
     case 'KNOWLEDGE_TO_CREDIT': return { ...preview, knowledge: preview.knowledge - 1, credit: preview.credit + 1 };
     case 'QIC_TO_ORE': return { ...preview, qic: preview.qic - 1, ore: preview.ore + 1 };
     case 'BAL_TAKS_CONVERT_GAIAFORMER': return addQicPreview({ ...preview, stockGaiaformer: preview.stockGaiaformer - 1 }, 1);
