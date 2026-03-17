@@ -1804,6 +1804,7 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
                 interactive={!!myPS && isMyTurn}
                 factionCode={myPS?.factionCode}
                 brainstoneBowl={myPS?.brainstoneBowl}
+                stockPlanetaryInstitute={myPS?.stockPlanetaryInstitute}
               />
             </div>
           );

@@ -10,6 +10,7 @@ interface Props {
   interactive?: boolean;
   factionCode?: string | null;
   brainstoneBowl?: number | null;
+  stockPlanetaryInstitute?: number;
 }
 
 const BUTTONS: {
@@ -35,15 +36,17 @@ const BUTTONS: {
   { code: 'ORE_TO_TOKEN',        label: '1광석 → 1토큰',  left: 2, top: 85.75, w: 96, h: 10.8, costOre: 1 },
 ];
 
-export default function FreePowerImage({ ore, qic, powerBowl3, knowledge, interactive = true, factionCode, brainstoneBowl }: Props) {
+export default function FreePowerImage({ ore, qic, powerBowl3, knowledge, interactive = true, factionCode, brainstoneBowl, stockPlanetaryInstitute }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
   const addFreeConvert = useGameStore(s => s.addFreeConvert);
 
   const isTaklonsBrain3 = factionCode === 'TAKLONS' && brainstoneBowl === 3;
+  const isNevlasPi = factionCode === 'NEVLAS' && stockPlanetaryInstitute === 0;
 
   const isDisabled = (btn: typeof BUTTONS[0]) => {
     if (btn.costPower) {
-      const effectivePower = powerBowl3 + (isTaklonsBrain3 ? 3 : 0);
+      const basePower = isNevlasPi ? powerBowl3 * 2 : powerBowl3;
+      const effectivePower = basePower + (isTaklonsBrain3 ? 3 : 0);
       if (effectivePower < btn.costPower) return true;
     }
     if (btn.costOre && ore < btn.costOre) return true;
