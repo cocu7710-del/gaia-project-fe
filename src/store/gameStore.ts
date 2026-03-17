@@ -91,18 +91,17 @@ function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerSta
     case 'ORE_TO_POWER3':   return { ...preview, ore: preview.ore - 1, powerBowl3: preview.powerBowl3 + 1 };
     case 'POWER_TO_CREDIT': {
       const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
-      // 네블라 PI: 1토큰=2파워=2c, 일반: 1토큰=1파워=1c
       const tokens = 1;
       return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, credit: preview.credit + (npi ? 2 : 1) };
     }
     case 'POWER_TO_ORE': {
       const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
-      const tokens = npi ? 2 : 3; // 네블라: 2토큰=4파워≥3, 일반: 3토큰
+      const tokens = npi ? 2 : 3;
       return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, ore: preview.ore + 1 };
     }
     case 'POWER_TO_KNOWLEDGE': {
       const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
-      const tokens = npi ? 2 : 4; // 네블라: 2토큰=4파워, 일반: 4토큰
+      const tokens = npi ? 2 : 4;
       return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, knowledge: preview.knowledge + 1 };
     }
     case 'POWER_TO_QIC': {
@@ -177,6 +176,10 @@ function calculatePreviewState(
       powerBowl3: preview.powerBowl3 + burnPowerCount,
       ...(isItars ? { gaiaPower: (preview.gaiaPower || 0) + burnPowerCount } : {}),
     };
+  }
+  // 프리 액션 (소각 뒤, 메인 액션 전에 적용 — BE 확정 순서와 동일)
+  for (const code of freeConvertActions) {
+    preview = applyFreeConvert(preview, code);
   }
   for (const act of actions) {
     // TWILIGHT_ARTIFACT: 파워 6 소각 (bowl1→2→3 순 영구 제거) + 즉시 효과
@@ -360,9 +363,7 @@ function calculatePreviewState(
       }
     }
   }
-  for (const code of freeConvertActions) {
-    preview = applyFreeConvert(preview, code);
-  }
+  // freeConvertActions는 이미 burn 뒤, actions 뒤에 적용됨 (위에서 이동 완료)
   if (tentativeTechTrackCode) {
     preview = applyTrackAdvance(preview, tentativeTechTrackCode);
   }
