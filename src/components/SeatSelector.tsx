@@ -122,15 +122,8 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
     return isMyOwnSeat && previewPlayerState ? previewPlayerState : playerState;
   };
 
-  // 라운드 첫 번째 플레이어 기준으로 좌석 정렬 (라운드 내 고정)
-  const { roundFirstSeatNo } = useGameStore();
-  const sortedSeats = (() => {
-    const firstSeat = roundFirstSeatNo ?? currentTurnSeatNo;
-    if (!firstSeat || seats.length === 0) return seats;
-    const idx = seats.findIndex(s => s.seatNo === firstSeat);
-    if (idx <= 0) return seats;
-    return [...seats.slice(idx), ...seats.slice(0, idx)];
-  })();
+  // turnOrder 기준 정렬 (BE에서 라운드마다 갱신)
+  const sortedSeats = [...seats].sort((a, b) => (a.turnOrder ?? a.seatNo) - (b.turnOrder ?? b.seatNo));
 
   return (
     <div className="flex flex-col gap-1">

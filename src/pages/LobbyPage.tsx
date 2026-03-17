@@ -225,8 +225,7 @@ export default function LobbyPage() {
               buildingApi.getBuildings(roomId),
             ]);
             setPublicState(stateRes3.data);
-            // 라운드 첫 번째 플레이어 기억 (플레이어 판 순서 고정용)
-            useGameStore.setState({ roundFirstSeatNo: stateRes3.data.currentTurnSeatNo });
+            // turnOrder는 BE에서 갱신됨 → setPublicState로 seats에 반영
             setPlayerStates(playerRes4.data);
             clearPendingActions();
             setHexes(hexRes2.data);
@@ -403,10 +402,7 @@ export default function LobbyPage() {
         // 1. 공개 상태 조회
         const stateRes = await roomApi.getPublicState(roomId);
         setPublicState(stateRes.data);
-        // 새로고침 시 roundFirstSeatNo 복원 (없으면 현재 턴으로)
-        if (!useGameStore.getState().roundFirstSeatNo && stateRes.data.currentTurnSeatNo) {
-          useGameStore.setState({ roundFirstSeatNo: stateRes.data.currentTurnSeatNo });
-        }
+        // turnOrder는 seats에 포함되어 setPublicState에서 자동 반영
 
         // 2. 맵 헥스 조회
         const hexRes = await mapApi.getHexes(roomId);

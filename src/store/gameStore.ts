@@ -357,6 +357,7 @@ interface GameState {
   nextSetupSeatNo: number | null;
   currentTurnSeatNo: number | null;
   roundFirstSeatNo: number | null;
+  roundSeatOrder: number[];  // 현재 라운드 좌석 순서 (ROUND_STARTED에서 설정)
   economyTrackOption: string | null;
   tinkeroidsExtraRingPlanet: string | null;
   moweidsExtraRingPlanet: string | null;
@@ -526,6 +527,7 @@ const initialState = {
   nextSetupSeatNo: null,
   currentTurnSeatNo: null,
   roundFirstSeatNo: null,
+  roundSeatOrder: [],
   economyTrackOption: null,
   tinkeroidsExtraRingPlanet: null,
   moweidsExtraRingPlanet: null,
