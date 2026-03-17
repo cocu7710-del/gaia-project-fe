@@ -275,15 +275,23 @@ function calculatePreviewState(
     if (act.type === 'ADVANCE_TECH') {
       preview = applyTrackAdvance(preview, act.payload.trackCode);
     }
-    if (act.type === 'FLEET_PROBE' && act.payload.powerCharge > 0) {
+    if (act.type === 'FLEET_PROBE') {
+      // 네블라/아이타: 우주선 입장 시 파워 토큰 1개 영구 소각
+      if (preview.factionCode === 'NEVLAS' || preview.factionCode === 'ITARS') {
+        if (preview.powerBowl1 > 0) preview = { ...preview, powerBowl1: preview.powerBowl1 - 1 };
+        else if (preview.powerBowl2 > 0) preview = { ...preview, powerBowl2: preview.powerBowl2 - 1 };
+        else if (preview.powerBowl3 > 0) preview = { ...preview, powerBowl3: preview.powerBowl3 - 1 };
+      }
       // 파워 순환: bowl1 → bowl2 → bowl3 순서로 충전
-      let remaining = act.payload.powerCharge;
-      const fromBowl1 = Math.min(preview.powerBowl1, remaining);
-      preview = { ...preview, powerBowl1: preview.powerBowl1 - fromBowl1, powerBowl2: preview.powerBowl2 + fromBowl1 };
-      remaining -= fromBowl1;
-      if (remaining > 0) {
-        const fromBowl2 = Math.min(preview.powerBowl2, remaining);
-        preview = { ...preview, powerBowl2: preview.powerBowl2 - fromBowl2, powerBowl3: preview.powerBowl3 + fromBowl2 };
+      if (act.payload.powerCharge > 0) {
+        let remaining = act.payload.powerCharge;
+        const fromBowl1 = Math.min(preview.powerBowl1, remaining);
+        preview = { ...preview, powerBowl1: preview.powerBowl1 - fromBowl1, powerBowl2: preview.powerBowl2 + fromBowl1 };
+        remaining -= fromBowl1;
+        if (remaining > 0) {
+          const fromBowl2 = Math.min(preview.powerBowl2, remaining);
+          preview = { ...preview, powerBowl2: preview.powerBowl2 - fromBowl2, powerBowl3: preview.powerBowl3 + fromBowl2 };
+        }
       }
     }
     if (act.type === 'DEPLOY_GAIAFORMER') {

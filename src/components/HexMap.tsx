@@ -880,6 +880,9 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
           }
           const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
           if (!myState || myState.victoryPoints < 5) return false;
+          // 네블라/아이타: 우주선 입장 시 토큰 1개 소각 필요
+          if ((myState.factionCode === 'NEVLAS' || myState.factionCode === 'ITARS')
+              && (myState.powerBowl1 + myState.powerBowl2 + myState.powerBowl3) <= 0) return false;
           // 항법 거리 체크 (광산과 동일: navRange + navBonus, QIC로 추가 확장 가능)
           const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
           const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
