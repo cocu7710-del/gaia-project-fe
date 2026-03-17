@@ -122,8 +122,8 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
     return isMyOwnSeat && previewPlayerState ? previewPlayerState : playerState;
   };
 
-  // turnOrder 기준 정렬 (BE에서 라운드마다 갱신)
-  const sortedSeats = [...seats].sort((a, b) => (a.turnOrder ?? a.seatNo) - (b.turnOrder ?? b.seatNo));
+  // 정렬: seatNo 순 (BE에서 라운드마다 갱신, turnOrder는 패스 순서 표시용)
+  const sortedSeats = [...seats].sort((a, b) => a.seatNo - b.seatNo);
 
   return (
     <div className="flex flex-col gap-1">
@@ -359,12 +359,9 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                       <span style={{ color: planetColor }}>{seat.raceNameKo}</span>
                       {seat.nickname && <span className="text-gray-300"> {seat.nickname}</span>}
                       {isMyOwnSeat && <span className="text-yellow-400"> (나)</span>}
-                      {(() => {
-                        const passIdx = passedSeatNos.indexOf(seat.seatNo);
-                        return passIdx >= 0 ? (
-                          <span className="text-red-400 font-bold"> Pass({passIdx + 1})</span>
-                        ) : null;
-                      })()}
+                      {(seat.turnOrder ?? 0) > 0 && (
+                        <span className="text-red-400 font-bold"> Pass({seat.turnOrder})</span>
+                      )}
                     </div>
 
                     {/* 행1: 돈 광 지식 QIC 파순 토추 */}
