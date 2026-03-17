@@ -241,8 +241,13 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                   {/* Bowl 3: 1시(30도) ~ 4시(110도) - 밝은 핑크 */}
                   {(() => {
                     const canOre3 = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && seat.raceCode === 'XENOS' && resources.ore >= 1;
+                    const canNevlasGaia = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && seat.raceCode === 'NEVLAS' && resources.power3 >= 1;
+                    const canClick3 = canOre3 || canNevlasGaia;
                     return (
-                      <g onClick={() => canOre3 && addFreeConvert('ORE_TO_POWER3')} style={{ cursor: canOre3 ? 'pointer' : 'default' }}>
+                      <g onClick={() => {
+                        if (canOre3) addFreeConvert('ORE_TO_POWER3');
+                        else if (canNevlasGaia) addFreeConvert('NEVLAS_POWER3_TO_GAIA_KNOWLEDGE');
+                      }} style={{ cursor: canClick3 ? 'pointer' : 'default' }}>
                         <path d={describeArc(50, 50, 38, 30, 110)} fill="none" stroke="#ec4899" strokeWidth="14" />
                         <text x="84" y="40" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="bold">
                           {resources.power3}

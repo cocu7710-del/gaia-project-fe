@@ -118,6 +118,7 @@ function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerSta
     case 'HADSCH_HALLAS_4C_QIC': return addQicPreview({ ...preview, credit: preview.credit - 4 }, 1);
     case 'NEVLAS_4P_ORE_CREDIT': return { ...preview, powerBowl3: preview.powerBowl3 - 2, powerBowl1: preview.powerBowl1 + 2, ore: preview.ore + 1, credit: preview.credit + 1 };
     case 'NEVLAS_4P_ORE2': return { ...preview, powerBowl3: preview.powerBowl3 - 2, powerBowl1: preview.powerBowl1 + 2, ore: preview.ore + 2 };
+    case 'NEVLAS_POWER3_TO_GAIA_KNOWLEDGE': return { ...preview, powerBowl3: preview.powerBowl3 - 1, gaiaPower: (preview.gaiaPower || 0) + 1, knowledge: preview.knowledge + 1 };
     default: return preview;
   }
 }
