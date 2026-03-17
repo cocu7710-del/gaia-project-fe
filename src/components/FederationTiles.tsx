@@ -417,11 +417,15 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     if (!isMyTurn || hasPendingAction || inFleetShipMode || usedCodes.has(config.code)) return;
     if (!myPlayerId || !(fleetProbes[fleetCode] || []).includes(myPlayerId)) return;
     if (currentPlayerState && !ResourceCalculator.canAfford(currentPlayerState as any, config.cost)) {
+      // 네블라 PI: 파워 2배
+      const isNevPi = config.cost.power && (currentPlayerState as any).factionCode === 'NEVLAS'
+          && (currentPlayerState as any).stockPlanetaryInstitute === 0
+          && (currentPlayerState.powerBowl3 ?? 0) * 2 >= config.cost.power;
       // 타클론: 브레인스톤 bowl3이면 파워 +3으로 재판정
       const isTakBrain = config.cost.power && (currentPlayerState as any).factionCode === 'TAKLONS'
           && (currentPlayerState as any).brainstoneBowl === 3
           && ((currentPlayerState.powerBowl3 ?? 0) + 3) >= config.cost.power;
-      if (!isTakBrain) return;
+      if (!isNevPi && !isTakBrain) return;
     }
 
     const meta = FLEET_ACTION_FSA_META[config.code];
@@ -759,6 +763,13 @@ function ActionButtons({ layout, hasEntered, canAct, usedCodes, currentPlayerSta
         if (config.code === 'FLEET_TF_MARS_2' && currentPlayerState && (currentPlayerState.stockGaiaformer ?? 0) <= 0) {
           affordable = false;
         }
+        // 네블라 PI: 3구역 파워 2배
+        if (!affordable && currentPlayerState && config.cost.power
+            && (currentPlayerState as any).factionCode === 'NEVLAS'
+            && (currentPlayerState as any).stockPlanetaryInstitute === 0) {
+          affordable = (currentPlayerState.powerBowl3 ?? 0) * 2 >= config.cost.power;
+        }
+        // 타클론: 브레인스톤 bowl3 +3
         if (!affordable && currentPlayerState && config.cost.power
             && (currentPlayerState as any).factionCode === 'TAKLONS'
             && (currentPlayerState as any).brainstoneBowl === 3) {

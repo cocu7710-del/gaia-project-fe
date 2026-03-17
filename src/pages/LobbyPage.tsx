@@ -318,6 +318,14 @@ export default function LobbyPage() {
           if (deferredPayload.actionType === 'PLACE_MINE_TERRAFORM_2'
               && deferredPayload.triggerPlayerId === (playerId || urlPlayerId)) {
             setDeferredAction({ type: 'PLACE_MINE_TERRAFORM_2', terraformDiscount: 2 });
+            // 2삽 할인 pending 추가 → HexMap에서 광산 건설 모드 활성화
+            clearPendingActions();
+            addPendingAction({
+              id: `deferred-tf2-${Date.now()}`,
+              type: 'BOOSTER_ACTION',
+              timestamp: Date.now(),
+              payload: { boosterCode: 'DEFERRED_TERRAFORM_2', actionType: 'TERRAFORM_TWO_STEP', terraformDiscount: 2, navBonus: 0 },
+            });
           }
           break;
         }
@@ -729,9 +737,13 @@ export default function LobbyPage() {
           if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
 
         } else if (boosterActionPending && mineAction) {
-          // 부스터 액션 + 광산 건설 콤보 (TERRAFORM_ONE_STEP, NAVIGATION_PLUS_3 모두)
-          const boosterRes = await roomApi.useBoosterAction(roomId, playerId);
-          if (!boosterRes.data.success) { setConfirmError(boosterRes.data.message || '부스터 액션 실패'); return; }
+          const isDeferred = boosterActionPending.payload.boosterCode === 'DEFERRED_TERRAFORM_2';
+          if (!isDeferred) {
+            // 부스터 액션 + 광산 건설 콤보 (TERRAFORM_ONE_STEP, NAVIGATION_PLUS_3 모두)
+            const boosterRes = await roomApi.useBoosterAction(roomId, playerId);
+            if (!boosterRes.data.success) { setConfirmError(boosterRes.data.message || '부스터 액션 실패'); return; }
+          }
+          // deferred(기술타일 2삽)면 부스터 API 스킵, 광산만 건설 (BE에서 이미 터 진행 처리됨)
           const qicUsed = mineAction.payload.cost?.qic ?? 0;
           const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
           const res = await roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
@@ -864,6 +876,7 @@ export default function LobbyPage() {
       }
 
       clearPendingActions(true);  // 프리뷰 유지 (WS 이벤트로 갱신될 때까지 깜빡임 방지)
+      setDeferredAction(null);    // deferred 배너 해제
       setTechRefreshKey(k => k + 1);
 
     } catch (err: any) {

@@ -90,7 +90,9 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
         {POWER_ACTION_SLOTS.map((slot) => {
           const isUsed = usedCodes.has(slot.code);
           const isTaklonsBrain3 = currentState && (currentState as any).factionCode === 'TAKLONS' && (currentState as any).brainstoneBowl === 3;
-          const effectivePower = (currentState?.powerBowl3 ?? 0) + (isTaklonsBrain3 ? 3 : 0);
+          const isNevlasPi = currentState && (currentState as any).factionCode === 'NEVLAS' && (currentState as any).stockPlanetaryInstitute === 0;
+          const bowl3 = currentState?.powerBowl3 ?? 0;
+          const effectivePower = (isNevlasPi ? bowl3 * 2 : bowl3) + (isTaklonsBrain3 ? 3 : 0);
           const canAfford = !currentState || effectivePower >= slot.cost;
           const canClick = isMyTurn && isPlayingPhase && !hasPendingAction && !isUsed && canAfford;
 

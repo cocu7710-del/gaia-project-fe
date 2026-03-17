@@ -20,6 +20,10 @@ export class ResourceCalculator {
     state: PlayerStateResponse,
     cost: ResourceCost
   ): PlayerStateResponse {
+    const powerCost = cost.power || 0;
+    // 네블라 PI: bowl3 토큰 1개 = 2파워 (올림 계산)
+    const isNevlasPi = (state as any).factionCode === 'NEVLAS' && (state as any).stockPlanetaryInstitute === 0;
+    const actualTokens = isNevlasPi && powerCost > 0 ? Math.ceil(powerCost / 2) : powerCost;
     return {
       ...state,
       credit: state.credit - (cost.credit || 0),
@@ -27,8 +31,8 @@ export class ResourceCalculator {
       knowledge: state.knowledge - (cost.knowledge || 0),
       qic: state.qic - (cost.qic || 0),
       // 사용된 파워는 3구역에서 차감 → 1구역으로 반환
-      powerBowl1: state.powerBowl1 + (cost.power || 0),
-      powerBowl3: state.powerBowl3 - (cost.power || 0),
+      powerBowl1: state.powerBowl1 + actualTokens,
+      powerBowl3: state.powerBowl3 - actualTokens,
       victoryPoints: state.victoryPoints - (cost.vp || 0),
     };
   }
