@@ -755,6 +755,10 @@ function ActionButtons({ layout, hasEntered, canAct, usedCodes, currentPlayerSta
         const isUsed = usedCodes.has(config.code);
         // 타클론: 브레인스톤이 bowl3에 있으면 +3 파워로 간주
         let affordable = !currentPlayerState || ResourceCalculator.canAfford(currentPlayerState, config.cost);
+        // TF_MARS_GAIAFORM: 가이아포머 재고 필요
+        if (config.code === 'FLEET_TF_MARS_2' && currentPlayerState && (currentPlayerState.stockGaiaformer ?? 0) <= 0) {
+          affordable = false;
+        }
         if (!affordable && currentPlayerState && config.cost.power
             && (currentPlayerState as any).factionCode === 'TAKLONS'
             && (currentPlayerState as any).brainstoneBowl === 3) {
