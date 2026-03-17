@@ -23,13 +23,19 @@ export function TerransGaiaDialog({ roomId, myPlayerId }: Props) {
   const used = credits * 1 + ores * 3 + qics * 4 + knowledges * 4;
   const remaining = totalGaia - used;
 
+  const [error, setError] = useState<string | null>(null);
   const handleConfirm = async () => {
     setSubmitting(true);
+    setError(null);
     try {
-      await roomApi.terransGaiaConvert(roomId, myPlayerId, credits, ores, qics, knowledges);
-      setTerransGaiaChoice(null);
-    } catch (err) {
-      console.error(err);
+      const res = await roomApi.terransGaiaConvert(roomId, myPlayerId, credits, ores, qics, knowledges);
+      if (res.data.success) {
+        setTerransGaiaChoice(null);
+      } else {
+        setError(res.data.message || '변환 실패');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || '변환 중 오류 발생');
     } finally {
       setSubmitting(false);
     }
@@ -46,6 +52,7 @@ export function TerransGaiaDialog({ roomId, myPlayerId }: Props) {
         <p className="text-xs text-gray-400 mb-3">
           가이아 토큰 <span className="text-white font-bold">{totalGaia}개</span> (남은: <span className="text-yellow-300 font-bold">{remaining}</span>)
         </p>
+        {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
 
         <div className="flex flex-col gap-2">
           <Row label="크레딧 (1t=1c)" color="text-yellow-300" value={credits} setValue={setCredits} cost={1} remaining={remaining} />

@@ -827,7 +827,7 @@ export default function LobbyPage() {
           const trackCode = needsTile
             ? techTile ?? undefined
             : needsArtifact
-              ? techTile ?? undefined  // 인공물 코드를 tentativeTechTileCode에 저장
+              ? techTile ?? (fsa.payload as any).artifactCode ?? undefined
               : fsa.payload.trackCode;
           const techTrackCode = needsTile
             ? techTrack ?? undefined

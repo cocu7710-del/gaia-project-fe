@@ -364,7 +364,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                       {(() => {
                         const passIdx = passedSeatNos.indexOf(seat.seatNo);
                         return passIdx >= 0 ? (
-                          <span className="text-red-400 font-bold"> P{passIdx + 1}</span>
+                          <span className="text-red-400 font-bold"> Pass({passIdx + 1})</span>
                         ) : null;
                       })()}
                     </div>
