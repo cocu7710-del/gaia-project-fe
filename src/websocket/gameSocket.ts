@@ -1,7 +1,7 @@
 import { Client, type IMessage } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 
-const WS_URL = 'http://localhost:9000/ws';
+const WS_URL = (import.meta.env.VITE_API_URL || 'http://localhost:9000') + '/ws';
 
 export type EventType =
   | 'PLAYER_JOINED'
