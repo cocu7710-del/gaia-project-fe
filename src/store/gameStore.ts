@@ -483,6 +483,7 @@ interface GameState {
   // 턴 확정 시스템 액션
   initializeTurn: (playerState: PlayerStateResponse) => void;
   addPendingAction: (action: GameAction) => void;
+  updateLastPendingActionPayload: (patch: Record<string, unknown>) => void;
   clearPendingActions: (keepPreview?: boolean) => void;
   addTentativeBuilding: (building: GameBuilding) => void;
   setTentativeBooster: (boosterCode: string | null) => void;
@@ -668,6 +669,21 @@ export const useGameStore = create<GameState>((set) => ({
           ...state.turnState,
           pendingActions: newActions,
           previewPlayerState: calculatePreviewState(state.turnState.originalPlayerState, newActions, state.turnState.burnPowerCount, state.turnState.freeConvertActions),
+        },
+      };
+    }),
+
+  updateLastPendingActionPayload: (patch: Record<string, unknown>) =>
+    set((state) => {
+      const actions = [...state.turnState.pendingActions];
+      if (actions.length === 0) return {};
+      const last = actions[actions.length - 1];
+      actions[actions.length - 1] = { ...last, payload: { ...last.payload, ...patch } };
+      return {
+        turnState: {
+          ...state.turnState,
+          pendingActions: actions,
+          previewPlayerState: calculatePreviewState(state.turnState.originalPlayerState, actions, state.turnState.burnPowerCount, state.turnState.freeConvertActions),
         },
       };
     }),

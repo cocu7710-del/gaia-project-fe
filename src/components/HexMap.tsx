@@ -606,6 +606,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
     tinkeroidsExtraRingPlanet,
     moweidsExtraRingPlanet,
     addPendingAction,
+    updateLastPendingActionPayload,
     addTentativeBuilding,
     updatePreviewState,
     clearFleetShipMode,
@@ -1063,22 +1064,9 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
 
         if (!isMyTurn || !mySeat || !playerId) return;
 
-        // 함대 선박 hex 선택 모드: FleetShipAction 생성 후 pending에 추가
+        // 함대 선박 hex 선택 모드: 이미 추가된 pending action에 좌표 업데이트
         if (fleetShipMode) {
-          const action: FleetShipAction = {
-            id: `fsa-${Date.now()}-${Math.random()}`,
-            type: 'FLEET_SHIP_ACTION',
-            timestamp: Date.now(),
-            payload: {
-              fleetName: fleetShipMode.fleetName,
-              actionCode: fleetShipMode.actionCode,
-              cost: fleetShipMode.cost,
-              isImmediate: true,
-              hexQ: hex.hexQ,
-              hexR: hex.hexR,
-            },
-          };
-          addPendingAction(action);
+          updateLastPendingActionPayload({ hexQ: hex.hexQ, hexR: hex.hexR });
           clearFleetShipMode();
           // 건물 업그레이드 모드는 임시 건물 변경 표시
           if (fleetShipMode.needsUpgradeMineToTs) {
@@ -1396,7 +1384,7 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
       },
       [isMyTurn, mySeat, playerId, buildingByCoord, buildings, roomId, gamePhase,
        turnState.previewPlayerState, turnState.pendingActions, turnState.tentativeBuildings,
-       playerStates, mySeatNo, addPendingAction, addTentativeBuilding, addUpgradeAction, fleetProbes,
+       playerStates, mySeatNo, addPendingAction, updateLastPendingActionPayload, addTentativeBuilding, addUpgradeAction, fleetProbes,
        fleetShipMode, clearFleetShipMode, upgradeChoiceHex, federationMode,
        addFederationBuilding, removeFederationBuilding, addFederationToken, removeFederationToken],
   );

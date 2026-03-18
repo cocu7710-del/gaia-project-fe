@@ -69,7 +69,7 @@ const TECH_TRACKS = [
 ];
 
 export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, playerId }: FleetShipActionsProps) {
-  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction } = useGameStore();
+  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction, clearPendingActions } = useGameStore();
   const [trackPickingFor, setTrackPickingFor] = useState<string | null>(null); // actionCode
 
   if (gamePhase !== 'PLAYING') return null;
@@ -116,6 +116,19 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
     }
 
     if (def.needsGaiaformHex || def.needsAsteroidHex || def.needsUpgradeMineToTs || def.needsTsToRl) {
+      // 자원 감소 프리뷰를 즉시 표시하기 위해 pending action 먼저 추가
+      const action: FleetShipAction = {
+        id: `fsa-${Date.now()}-${Math.random()}`,
+        type: 'FLEET_SHIP_ACTION',
+        timestamp: Date.now(),
+        payload: {
+          fleetName: def.fleetName,
+          actionCode,
+          cost: def.cost,
+          isImmediate: true,
+        },
+      };
+      addPendingAction(action);
       // hex 선택 모드 진입 (HexMap이 이 모드를 감지해서 적절한 헥스를 클릭 가능하게 함)
       setFleetShipMode({
         actionCode,
@@ -234,7 +247,7 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
         <div className="mt-1 text-[8px] text-yellow-400">
           헥스를 선택하세요 ({fleetShipMode!.actionCode})
           <button
-            onClick={() => setFleetShipMode(null)}
+            onClick={() => { clearPendingActions(); setFleetShipMode(null); }}
             className="ml-1 text-gray-400 hover:text-white"
           >
             [취소]
