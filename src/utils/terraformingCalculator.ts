@@ -106,9 +106,9 @@ export function getTerraformDiscount(pendingActions: { type: string; payload: an
   );
   if (pwrAct) return pwrAct.payload.powerActionCode === 'PWR_TERRAFORM_2' ? 2 : 1;
 
-  // 부스터 액션 테라포밍 (BOOSTER_14: 1단계 할인)
+  // 부스터 액션 테라포밍 (BOOSTER_14: 1단계, 기술타일: 2단계, 연방타일: 3단계)
   const boosterAct = pendingActions.find(
-    a => a.type === 'BOOSTER_ACTION' && a.payload.actionType === 'TERRAFORM_ONE_STEP',
+    a => a.type === 'BOOSTER_ACTION' && ['TERRAFORM_ONE_STEP', 'TERRAFORM_TWO_STEP', 'TERRAFORM_THREE_STEP'].includes(a.payload.actionType),
   );
   if (boosterAct) return boosterAct.payload.terraformDiscount ?? 1;
 

@@ -327,6 +327,18 @@ export default function LobbyPage() {
               payload: { boosterCode: 'DEFERRED_TERRAFORM_2', actionType: 'TERRAFORM_TWO_STEP', terraformDiscount: 2, navBonus: 0 },
             });
           }
+          if (deferredPayload.actionType === 'PLACE_MINE_TERRAFORM_3'
+              && deferredPayload.triggerPlayerId === (playerId || urlPlayerId)) {
+            setDeferredAction({ type: 'PLACE_MINE_TERRAFORM_3', terraformDiscount: 3 });
+            // 3삽 할인 pending 추가 → HexMap에서 광산 건설 모드 활성화
+            clearPendingActions();
+            addPendingAction({
+              id: `deferred-tf3-${Date.now()}`,
+              type: 'BOOSTER_ACTION',
+              timestamp: Date.now(),
+              payload: { boosterCode: 'DEFERRED_TERRAFORM_3', actionType: 'TERRAFORM_THREE_STEP', terraformDiscount: 3, navBonus: 0 },
+            });
+          }
           break;
         }
 
@@ -1096,6 +1108,18 @@ export default function LobbyPage() {
       {deferredAction?.type === 'PLACE_MINE_TERRAFORM_2' && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-emerald-900/90 backdrop-blur-sm border border-emerald-500/40 text-emerald-100 px-6 py-2.5 rounded-xl z-40 text-sm flex items-center gap-2 shadow-lg shadow-emerald-900/20">
           <span>테라포밍 2단계 할인 적용 — 광산을 배치할 위치를 선택하세요.</span>
+          <button
+            onClick={() => setDeferredAction(null)}
+            className="text-emerald-300 hover:text-white text-xs ml-2"
+          >
+            취소
+          </button>
+        </div>
+      )}
+
+      {deferredAction?.type === 'PLACE_MINE_TERRAFORM_3' && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-emerald-900/90 backdrop-blur-sm border border-emerald-500/40 text-emerald-100 px-6 py-2.5 rounded-xl z-40 text-sm flex items-center gap-2 shadow-lg shadow-emerald-900/20">
+          <span>연방 타일: 테라포밍 3단계 할인 적용 — 광산을 배치할 위치를 선택하세요.</span>
           <button
             onClick={() => setDeferredAction(null)}
             className="text-emerald-300 hover:text-white text-xs ml-2"
