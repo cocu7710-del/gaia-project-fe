@@ -66,7 +66,12 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
       }
     }
 
-    if (currentState && !useBrainstone && !ResourceCalculator.canAfford(currentState as any, { power: cost })) return;
+    // 네블라 PI: bowl3 * 2로 파워 판정
+    const isNevPi = currentState && (currentState as any).factionCode === 'NEVLAS' && (currentState as any).stockPlanetaryInstitute === 0;
+    const actualAfford = isNevPi
+      ? ((currentState?.powerBowl3 ?? 0) * 2) >= cost
+      : ResourceCalculator.canAfford(currentState as any, { power: cost });
+    if (currentState && !useBrainstone && !actualAfford) return;
 
     const action: PowerAction = {
       id: `action-${Date.now()}-${Math.random()}`,

@@ -22,7 +22,7 @@ function removePowerTokenPreview(ps: PlayerStateResponse): PlayerStateResponse {
   return { ...ps, powerBowl3: ps.powerBowl3 - 1 };
 }
 
-/** 파워 순환 프리뷰 (bowl1→bowl2→bowl3) */
+/** 파워 순환 프리뷰 (bowl1→bowl2→bowl3, 방금 이동한 토큰도 같은 순환에서 사용 가능) */
 function applyPowerCharge(p: PlayerStateResponse, amount: number): PlayerStateResponse {
   let rem = amount;
   const fb1 = Math.min(p.powerBowl1, rem);
@@ -285,16 +285,9 @@ function calculatePreviewState(
         else if (preview.powerBowl2 > 0) preview = { ...preview, powerBowl2: preview.powerBowl2 - 1 };
         else if (preview.powerBowl3 > 0) preview = { ...preview, powerBowl3: preview.powerBowl3 - 1 };
       }
-      // 파워 순환: bowl1 → bowl2 → bowl3 순서로 충전
+      // 파워 순환
       if (act.payload.powerCharge > 0) {
-        let remaining = act.payload.powerCharge;
-        const fromBowl1 = Math.min(preview.powerBowl1, remaining);
-        preview = { ...preview, powerBowl1: preview.powerBowl1 - fromBowl1, powerBowl2: preview.powerBowl2 + fromBowl1 };
-        remaining -= fromBowl1;
-        if (remaining > 0) {
-          const fromBowl2 = Math.min(preview.powerBowl2, remaining);
-          preview = { ...preview, powerBowl2: preview.powerBowl2 - fromBowl2, powerBowl3: preview.powerBowl3 + fromBowl2 };
-        }
+        preview = applyPowerCharge(preview, act.payload.powerCharge);
       }
     }
     if (act.type === 'DEPLOY_GAIAFORMER') {
@@ -347,14 +340,7 @@ function calculatePreviewState(
       const effect = TECH_TILE_ACTION_PREVIEW[act.payload.tileCode];
       if (effect) {
         if (effect.powerCharge) {
-          let remaining = effect.powerCharge;
-          const fromBowl1 = Math.min(preview.powerBowl1, remaining);
-          preview = { ...preview, powerBowl1: preview.powerBowl1 - fromBowl1, powerBowl2: preview.powerBowl2 + fromBowl1 };
-          remaining -= fromBowl1;
-          if (remaining > 0) {
-            const fromBowl2 = Math.min(preview.powerBowl2, remaining);
-            preview = { ...preview, powerBowl2: preview.powerBowl2 - fromBowl2, powerBowl3: preview.powerBowl3 + fromBowl2 };
-          }
+          preview = applyPowerCharge(preview, effect.powerCharge);
         }
         if (effect.ore) preview = { ...preview, ore: preview.ore + effect.ore };
         if (effect.knowledge) preview = { ...preview, knowledge: preview.knowledge + effect.knowledge };
