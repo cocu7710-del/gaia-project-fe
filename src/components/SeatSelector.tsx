@@ -306,10 +306,12 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
               {/* 오른쪽: 이름 + 자원/건물 통합 그리드 */}
               {(() => {
                 // 보유 기술 타일 코드 (덮이지 않은 것만)
+                const pid = seat.playerId?.toString() ?? '';
                 const ownedTiles = techTileData
-                  ? [...techTileData.basicTiles, ...techTileData.advancedTiles]
-                      .filter(t => t.takenByPlayerId === seat.playerId)
-                      .map(t => t.tileCode)
+                  ? [
+                      ...techTileData.basicTiles.filter(t => (t.ownerPlayerIds ?? []).some(id => id === pid)),
+                      ...techTileData.advancedTiles.filter(t => t.takenByPlayerId === pid),
+                    ].map(t => t.tileCode)
                   : [];
                 const myArtifactCodes = gameArtifacts
                   .filter(a => a.acquiredByPlayerId === seat.playerId)
@@ -359,9 +361,12 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                       <span style={{ color: planetColor }}>{seat.raceNameKo}</span>
                       {seat.nickname && <span className="text-gray-300"> {seat.nickname}</span>}
                       {isMyOwnSeat && <span className="text-yellow-400"> (나)</span>}
-                      {(seat.turnOrder ?? 0) > 0 && (
-                        <span className="text-red-400 font-bold"> Pass({seat.turnOrder})</span>
-                      )}
+                      {(() => {
+                        const passIdx = passedSeatNos.indexOf(seat.seatNo);
+                        return passIdx >= 0 ? (
+                          <span className="text-red-400 font-bold"> Pass({passIdx + 1})</span>
+                        ) : null;
+                      })()}
                     </div>
 
                     {/* 행1: 돈 광 지식 QIC 파순 토추 */}
@@ -392,22 +397,30 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         <BldCell img={planetaryInstituteImg}  count={playerState.stockPlanetaryInstitute} />
                       </div>
                     )}
-                    {/* 행3: 포머 거리 삽 + 지식트랙 6개 */}
+                    {/* 행3: 포머 거리 삽 + 지식트랙 */}
                     {playerState && (
-                      <div className="flex items-center gap-x-2">
-                        <div className="flex items-center gap-0.5">
-                          <img src={pomerImg} className="w-4 h-4 flex-shrink-0" />
-                          <span className="text-green-300 font-bold text-[10px]">{resources.stockGaiaformer}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-x-2 pl-0.5">
+                          <div className="flex items-center gap-0.5">
+                            <img src={pomerImg} className="w-4 h-4 flex-shrink-0" />
+                            <span className="text-green-300 font-bold text-[10px]">{resources.stockGaiaformer}</span>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <img src={distanceImg} className="w-4 h-4 flex-shrink-0" />
+                            <span className="text-sky-300 font-bold text-[10px]">{resources.navigationRange}</span>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <img src={terraformImg} className="w-4 h-4 flex-shrink-0" />
+                            <span className="text-amber-300 font-bold text-[10px]">{resources.terraformCost}</span>
+                          </div>
+                          {seat.raceCode === 'TINKEROIDS' && tinkeroidsExtraRingPlanet && (
+                            <span className="text-pink-400 text-[9px]">+3삽:{tinkeroidsExtraRingPlanet}</span>
+                          )}
+                          {seat.raceCode === 'MOWEIDS' && moweidsExtraRingPlanet && (
+                            <span className="text-cyan-400 text-[9px]">+3삽:{moweidsExtraRingPlanet}</span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-0.5">
-                          <img src={distanceImg} className="w-4 h-4 flex-shrink-0" />
-                          <span className="text-sky-300 font-bold text-[10px]">{resources.navigationRange}</span>
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                          <img src={terraformImg} className="w-4 h-4 flex-shrink-0" />
-                          <span className="text-amber-300 font-bold text-[10px]">{resources.terraformCost}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 ml-8">
+                        <div className="flex items-center gap-0.5 pl-0.5">
                           {['#dc2626','#38bdf8','#22c55e','#a855f7','#ea580c','#3b82f6'].map((c, i) => (
                             <div key={i} className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold border"
                               style={{ backgroundColor: '#1a1a2e', borderColor: c, color: c }}>
@@ -415,12 +428,6 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                             </div>
                           ))}
                         </div>
-                        {seat.raceCode === 'TINKEROIDS' && tinkeroidsExtraRingPlanet && (
-                          <span className="text-pink-400 text-[9px]">+3삽:{tinkeroidsExtraRingPlanet}</span>
-                        )}
-                        {seat.raceCode === 'MOWEIDS' && moweidsExtraRingPlanet && (
-                          <span className="text-cyan-400 text-[9px]">+3삽:{moweidsExtraRingPlanet}</span>
-                        )}
                       </div>
                     )}
 
@@ -545,20 +552,21 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                           // 글린 PI: 연방 토큰은 PI 건설 시 자동 지급 (별도 액션 버튼 없음)
                         } else if (factionCode === 'NEVLAS') {
                           // 네블라 PI: 3구역 파워 2배 사용 (프리 액션)
-                          const canNevlas = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && (playerState.powerBowl3 ?? 0) >= 2;
+                          const canNevlas2 = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && (playerState.powerBowl3 ?? 0) >= 2;
+                          const canNevlas3 = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && (playerState.powerBowl3 ?? 0) >= 3;
                           abilities.push(
-                            <button key="nev1" onClick={() => canNevlas && addFreeConvert('NEVLAS_4P_ORE_CREDIT')}
-                              disabled={!canNevlas}
+                            <button key="nev1" onClick={() => canNevlas2 && addFreeConvert('NEVLAS_4P_ORE_CREDIT')}
+                              disabled={!canNevlas2}
                               className={`px-1.5 py-0.5 rounded text-[8px] font-bold border transition-colors whitespace-nowrap
-                                ${!canNevlas ? 'border-gray-600 text-gray-600 cursor-not-allowed' : 'border-purple-500 text-purple-300 hover:bg-purple-500/20 cursor-pointer'}`}
+                                ${!canNevlas2 ? 'border-gray-600 text-gray-600 cursor-not-allowed' : 'border-purple-500 text-purple-300 hover:bg-purple-500/20 cursor-pointer'}`}
                             >4p→1o1c</button>
                           );
                           abilities.push(
-                            <button key="nev2" onClick={() => canNevlas && addFreeConvert('NEVLAS_4P_ORE2')}
-                              disabled={!canNevlas}
+                            <button key="nev2" onClick={() => canNevlas3 && addFreeConvert('NEVLAS_6P_ORE2')}
+                              disabled={!canNevlas3}
                               className={`px-1.5 py-0.5 rounded text-[8px] font-bold border transition-colors whitespace-nowrap
-                                ${!canNevlas ? 'border-gray-600 text-gray-600 cursor-not-allowed' : 'border-purple-500 text-purple-300 hover:bg-purple-500/20 cursor-pointer'}`}
-                            >4p→2o</button>
+                                ${!canNevlas3 ? 'border-gray-600 text-gray-600 cursor-not-allowed' : 'border-purple-500 text-purple-300 hover:bg-purple-500/20 cursor-pointer'}`}
+                            >6p→2o</button>
                           );
                         } else if (factionCode === 'MOWEIDS') {
                           // 모웨이드 PI: 건물 선택 → 링 씌우기 (pendingAction으로 처리)
@@ -581,10 +589,10 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                                 onClick={() => {
                                   if (tinkDisabled) return;
                                   if (isTerra) {
-                                    // 테라포밍: 선언형 pending
+                                    // 테라포밍: 선언형 pending (BE에는 TINKEROIDS_USE_ACTION으로 전송)
                                     addPendingAction({
                                       id: `fa-${Date.now()}`, type: 'FACTION_ABILITY', timestamp: Date.now(),
-                                      payload: { abilityCode: tinkAction, terraformDiscount: discount },
+                                      payload: { abilityCode: 'TINKEROIDS_USE_ACTION', tinkAction, terraformDiscount: discount },
                                     } as FactionAbilityAction);
                                   } else {
                                     // 즉시 효과: pending 추가 → 확정 시 BE 호출
@@ -667,7 +675,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                                 ? 'border-gray-600 text-gray-600 cursor-not-allowed'
                                 : 'border-cyan-500 text-cyan-300 hover:bg-cyan-500/20 cursor-pointer'
                               }`}
-                          >QIC학원 +1QIC</button>
+                          >아카데미 1Qic</button>
                         </div>
                       );
                     })()}
@@ -680,10 +688,11 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
             {/* 하단: 획득한 기술 타일 (2열 랩) */}
             {(() => {
               if (!techTileData) return null;
+              const myPid = playerState?.playerId?.toString() ?? '';
               const allTiles = [
-                ...techTileData.basicTiles.map(t => ({ ...t, isAdv: false })),
-                ...techTileData.advancedTiles.map(t => ({ ...t, isAdv: true })),
-              ].filter(t => t.takenByPlayerId === playerState?.playerId);
+                ...techTileData.basicTiles.filter(t => (t.ownerPlayerIds ?? []).includes(myPid)).map(t => ({ ...t, isAdv: false })),
+                ...techTileData.advancedTiles.filter(t => t.takenByPlayerId === myPid).map(t => ({ ...t, isAdv: true })),
+              ];
               if (allTiles.length === 0) return null;
 
               const hasPendingAction = turnState.pendingActions.length > 0;

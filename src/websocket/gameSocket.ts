@@ -16,6 +16,7 @@ export type EventType =
   | 'LEECH_OFFERED'
   | 'LEECH_DECIDED'
   | 'DEFERRED_ACTION_REQUIRED'
+  | 'MAP_ROTATED'
   | 'STATE_UPDATED';
 
 export interface GameEvent {

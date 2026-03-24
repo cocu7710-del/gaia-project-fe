@@ -8,7 +8,8 @@ import { ItarsGaiaChoiceDialog } from '../components/ItarsGaiaChoiceDialog';
 import { TerransGaiaDialog } from '../components/TerransGaiaDialog';
 import { TinkeroidsActionChoiceDialog } from '../components/TinkeroidsActionChoiceDialog';
 import { getTerraformDiscount } from '../utils/terraformingCalculator';
-import type { FleetShipAction, DeployGaiaformerAction } from '../types/turnActions';
+import { analyzePending } from '../actions/pendingAnalyzer';
+import { buildConfirmPlan, executeConfirmPlan } from '../actions/confirmExecutor';
 import type { BoosterAction } from '../types/turnActions';
 import { useGameStore } from '../store/gameStore';
 import { gameSocket } from '../websocket/gameSocket';
@@ -144,6 +145,16 @@ export default function LobbyPage() {
             setPublicState(stateRes.data);
             await loadBoosters();
             setBoosterPickSeatNo(event.payload.nextPickSeatNo as number);
+            // 부스터 선택 완료 후 팅커로이드 액션 선택 단계 복원
+            if (stateRes.data.gamePhase === 'TINKEROIDS_ACTION_PHASE'
+                && stateRes.data.pendingSpecialPlayerId
+                && stateRes.data.pendingSpecialData) {
+              setTinkeroidsActionChoice({
+                tinkeroidsPlayerId: stateRes.data.pendingSpecialPlayerId,
+                availableActions: stateRes.data.pendingSpecialData.availableActions as string[],
+                currentRound: stateRes.data.pendingSpecialData.currentRound as number,
+              });
+            }
           }
           break;
 
@@ -153,6 +164,19 @@ export default function LobbyPage() {
             event.payload.nextSetupSeatNo as number | null
           );
           await loadBoosters();
+          // 맵 회전이 반영된 최신 hex 데이터 로드
+          if (roomId) {
+            const hexResStart = await mapApi.getHexes(roomId);
+            setHexes(hexResStart.data);
+          }
+          break;
+
+        case 'MAP_ROTATED':
+          // 다른 플레이어의 맵 회전을 실시간 반영
+          if (roomId) {
+            const hexResRotated = await mapApi.getHexes(roomId);
+            setHexes(hexResRotated.data);
+          }
           break;
 
         case 'MINE_PLACED':
@@ -280,10 +304,14 @@ export default function LobbyPage() {
             deciderIds,
             offers,
           });
-          // 플레이어 상태 갱신
+          // 플레이어 상태 + 건물 갱신 (방금 지은 광산 반영)
           if (roomId) {
-            const prLeech = await roomApi.getPlayerStates(roomId);
+            const [prLeech, buildLeech] = await Promise.all([
+              roomApi.getPlayerStates(roomId),
+              buildingApi.getBuildings(roomId),
+            ]);
             setPlayerStates(prLeech.data);
+            setBuildings(buildLeech.data);
           }
           break;
         }
@@ -356,6 +384,16 @@ export default function LobbyPage() {
             setHexes(hexRes2.data);
             setTechRefreshKey(k => k + 1);
             await loadBoosters();
+            // 팅커로이드 액션 선택 단계 복원
+            if (stateRes2.data.gamePhase === 'TINKEROIDS_ACTION_PHASE'
+                && stateRes2.data.pendingSpecialPlayerId
+                && stateRes2.data.pendingSpecialData) {
+              setTinkeroidsActionChoice({
+                tinkeroidsPlayerId: stateRes2.data.pendingSpecialPlayerId,
+                availableActions: stateRes2.data.pendingSpecialData.availableActions as string[],
+                currentRound: stateRes2.data.pendingSpecialData.currentRound as number,
+              });
+            }
           }
           break;
       }
@@ -616,27 +654,11 @@ export default function LobbyPage() {
     if (turnState.pendingActions.length === 0) {
       return;
     }
-    // 부스터/파워 액션이 있는데 후속 액션(광산/우주선)이 아직 없는 경우 방지
-    const pendingBooster = turnState.pendingActions.find(a => a.type === 'BOOSTER_ACTION');
-    const hasPendingPowerTerraform = turnState.pendingActions.some(
-      a => a.type === 'POWER_ACTION' &&
-        (a.payload.powerActionCode === 'PWR_TERRAFORM' || a.payload.powerActionCode === 'PWR_TERRAFORM_2')
-    );
-    const pendingFleetShip = turnState.pendingActions.find(a => a.type === 'FLEET_SHIP_ACTION') as FleetShipAction | undefined;
-    const hasPendingFleetShipSplit = pendingFleetShip && !pendingFleetShip.payload.isImmediate;
-    const hasMine = turnState.pendingActions.some(a => a.type === 'PLACE_MINE');
-    const hasFleet = turnState.pendingActions.some(a => a.type === 'FLEET_PROBE');
-    const hasGaiaformer = turnState.pendingActions.some(a => a.type === 'DEPLOY_GAIAFORMER');
-    if (pendingBooster && !hasMine && !hasFleet && !hasGaiaformer) {
-      setConfirmError('위치를 선택하세요.');
-      return;
-    }
-    if (hasPendingPowerTerraform && !hasMine) {
-      setConfirmError('광산을 배치할 위치를 선택하세요.');
-      return;
-    }
-    if (hasPendingFleetShipSplit && !hasMine && !hasFleet && !hasGaiaformer) {
-      setConfirmError('위치를 선택하세요.');
+    // pendingAnalyzer로 확정 가능 여부 체크
+    const { tentativeTechTileCode: confirmTechTile, fleetShipMode: confirmFleetShipMode } = useGameStore.getState();
+    const confirmAnalysis = analyzePending(turnState.pendingActions, confirmFleetShipMode, confirmTechTile, gamePhase);
+    if (!confirmAnalysis.canConfirm) {
+      setConfirmError(confirmAnalysis.needsFollowUp ? '위치를 선택하세요.' : '조건을 충족하세요.');
       return;
     }
 
@@ -662,215 +684,9 @@ export default function LobbyPage() {
       }
 
       if (gamePhase === 'PLAYING') {
-        const actions = turnState.pendingActions;
-        const terraformDiscount = getTerraformDiscount(actions);
-        const mineAction = actions.find(a => a.type === 'PLACE_MINE');
-        const powerAction = actions.find(a => a.type === 'POWER_ACTION');
-        const boosterActionPending = actions.find(a => a.type === 'BOOSTER_ACTION');
-        const firstAction = actions[0];
-
-        const fleetAction = actions.find(a => a.type === 'FLEET_PROBE');
-        const gaiaformerAction = actions.find(a => a.type === 'DEPLOY_GAIAFORMER') as DeployGaiaformerAction | undefined;
-        const factionAbilityAction = actions.find(a => a.type === 'FACTION_ABILITY');
-
-        // QIC 아카데미 액션 (프리 액션: 턴 소모 없음)
-        if (factionAbilityAction?.payload?.abilityCode === 'QIC_ACADEMY_ACTION') {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'QIC_ACADEMY_ACTION');
-          if (!res.data.success) { setConfirmError(res.data.message || 'QIC 아카데미 액션 실패'); return; }
-
-        // 하이브 우주정거장: hexQ/hexR가 payload에 있으면 API 호출
-        } else if (factionAbilityAction?.payload?.abilityCode === 'IVITS_PLACE_STATION' && factionAbilityAction?.payload?.hexQ != null) {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'IVITS_PLACE_STATION',
-            undefined, factionAbilityAction!.payload.hexQ, factionAbilityAction!.payload.hexR);
-          if (!res.data.success) { setConfirmError(res.data.message || '우주정거장 배치 실패'); return; }
-
-        // 파이락 다운그레이드: 연구소 좌표 + 트랙 코드로 BE 호출
-        } else if (factionAbilityAction?.payload?.abilityCode === 'FIRAKS_DOWNGRADE' && factionAbilityAction.payload.hexQ != null) {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'FIRAKS_DOWNGRADE',
-            factionAbilityAction.payload.trackCode, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
-          if (!res.data.success) { setConfirmError(res.data.message || '파이락 다운그레이드 실패'); return; }
-
-        // 매드안드로이드: 최저 트랙 전진 (trackCode 유무 모두 지원)
-        } else if (factionAbilityAction?.payload?.abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK') {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'BESCODS_ADVANCE_LOWEST_TRACK',
-            factionAbilityAction.payload.trackCode);
-          if (!res.data.success) { setConfirmError(res.data.message || '매드안드로이드 능력 실패'); return; }
-
-        // 글린 PI: 연방 토큰 획득
-        } else if (factionAbilityAction?.payload?.abilityCode === 'GLEENS_FEDERATION_TOKEN') {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'GLEENS_FEDERATION_TOKEN');
-          if (!res.data.success) { setConfirmError(res.data.message || '글린 연방 토큰 실패'); return; }
-
-        // 엠바스 PI: 광산↔의회 교환
-        } else if (factionAbilityAction?.payload?.abilityCode === 'AMBAS_SWAP' && factionAbilityAction.payload.hexQ != null) {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'AMBAS_SWAP',
-            undefined, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
-          if (!res.data.success) { setConfirmError(res.data.message || '엠바스 교환 실패'); return; }
-
-        // 모웨이드 PI: 링 씌우기
-        } else if (factionAbilityAction?.payload?.abilityCode === 'MOWEIDS_RING' && factionAbilityAction.payload.hexQ != null) {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'MOWEIDS_RING',
-            undefined, factionAbilityAction.payload.hexQ, factionAbilityAction.payload.hexR);
-          if (!res.data.success) { setConfirmError(res.data.message || '모웨이드 링 실패'); return; }
-
-        // 팅커로이드: 즉시 효과 액션 사용
-        } else if (factionAbilityAction?.payload?.abilityCode === 'TINKEROIDS_USE_ACTION') {
-          const res = await roomApi.useFactionAbility(roomId, playerId, 'TINKEROIDS_USE_ACTION');
-          if (!res.data.success) { setConfirmError(res.data.message || '팅커로이드 액션 실패'); return; }
-
-        // 종족 능력(2삽/점프) + 후속 광산/우주선/가이아포머: 확정 시 BE 능력 선언 → 후속 행동
-        } else if (factionAbilityAction && mineAction) {
-          // 먼저 BE에 능력 선언
-          const abilityRes = await roomApi.useFactionAbility(roomId, playerId, factionAbilityAction.payload.abilityCode);
-          if (!abilityRes.data.success) { setConfirmError(abilityRes.data.message || '종족 능력 실패'); return; }
-          const qicUsed = mineAction.payload.cost?.qic ?? 0;
-          const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
-          const res = await roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
-          if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
-
-        } else if (factionAbilityAction && fleetAction) {
-          const abilityRes = await roomApi.useFactionAbility(roomId, playerId, factionAbilityAction.payload.abilityCode);
-          if (!abilityRes.data.success) { setConfirmError(abilityRes.data.message || '종족 능력 실패'); return; }
-          const navQic = fleetAction.payload.cost?.qic ?? 0;
-          const res = await fleetApi.placeFleetProbe(roomId, playerId, fleetAction.payload.fleetName, navQic);
-          if (!res.data.success) { setConfirmError(res.data.message || '우주선 입장 실패'); return; }
-
-        } else if (factionAbilityAction && gaiaformerAction) {
-          const abilityRes = await roomApi.useFactionAbility(roomId, playerId, factionAbilityAction.payload.abilityCode);
-          if (!abilityRes.data.success) { setConfirmError(abilityRes.data.message || '종족 능력 실패'); return; }
-          const res = await roomApi.deployGaiaformer(roomId, playerId, gaiaformerAction.payload.hexQ, gaiaformerAction.payload.hexR, gaiaformerAction.payload.qicUsed);
-          if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
-
-        } else if (boosterActionPending && gaiaformerAction) {
-          // BOOSTER_12 즉시 포밍: 부스터 사용 + 즉시 GAIA 변환
-          const boosterRes = await roomApi.useBoosterAction(roomId, playerId);
-          if (!boosterRes.data.success) { setConfirmError(boosterRes.data.message || '부스터 액션 실패'); return; }
-          const res = await roomApi.deployGaiaformer(roomId, playerId, gaiaformerAction.payload.hexQ, gaiaformerAction.payload.hexR, gaiaformerAction.payload.qicUsed, true);
-          if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
-
-        } else if (boosterActionPending && mineAction) {
-          const isDeferred = boosterActionPending.payload.boosterCode === 'DEFERRED_TERRAFORM_2';
-          if (!isDeferred) {
-            // 부스터 액션 + 광산 건설 콤보 (TERRAFORM_ONE_STEP, NAVIGATION_PLUS_3 모두)
-            const boosterRes = await roomApi.useBoosterAction(roomId, playerId);
-            if (!boosterRes.data.success) { setConfirmError(boosterRes.data.message || '부스터 액션 실패'); return; }
-          }
-          // deferred(기술타일 2삽)면 부스터 API 스킵, 광산만 건설 (BE에서 이미 터 진행 처리됨)
-          const qicUsed = mineAction.payload.cost?.qic ?? 0;
-          const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
-          const res = await roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
-          if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
-
-        } else if (boosterActionPending && fleetAction) {
-          // 부스터 항법 액션 + 우주선 입장 콤보
-          const boosterRes = await roomApi.useBoosterAction(roomId, playerId);
-          if (!boosterRes.data.success) { setConfirmError(boosterRes.data.message || '부스터 액션 실패'); return; }
-          const navQic = fleetAction.payload.cost?.qic ?? 0;
-          const res = await fleetApi.placeFleetProbe(roomId, playerId, fleetAction.payload.fleetName, navQic);
-          if (!res.data.success) { setConfirmError(res.data.message || '우주선 입장 실패'); return; }
-
-        } else if (pendingFleetShip && hasMine && !pendingFleetShip.payload.isImmediate) {
-          // 함대 선박 split 액션 (TF_MARS_TERRAFORM, TWILIGHT_NAV) + 광산 건설
-          const fsaRes = await roomApi.fleetShipAction(roomId, playerId, pendingFleetShip.payload.actionCode);
-          if (!fsaRes.data.success) { setConfirmError(fsaRes.data.message || '함대 액션 실패'); return; }
-          const qicUsed = mineAction!.payload.cost?.qic ?? 0;
-          const gaiaformerUsed = mineAction!.payload.gaiaformerUsed ?? false;
-          const res = await roomApi.placeMine(roomId, playerId, mineAction!.payload.hexQ, mineAction!.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
-          if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
-
-        } else if (pendingFleetShip && hasFleet && !pendingFleetShip.payload.isImmediate) {
-          // 함대 선박 split 액션 (TWILIGHT_NAV) + 우주선 입장
-          const fsaRes = await roomApi.fleetShipAction(roomId, playerId, pendingFleetShip.payload.actionCode);
-          if (!fsaRes.data.success) { setConfirmError(fsaRes.data.message || '함대 액션 실패'); return; }
-          const navQic = fleetAction!.payload.cost?.qic ?? 0;
-          const res = await fleetApi.placeFleetProbe(roomId, playerId, fleetAction!.payload.fleetName, navQic);
-          if (!res.data.success) { setConfirmError(res.data.message || '우주선 입장 실패'); return; }
-
-        } else if (pendingFleetShip && hasGaiaformer && !pendingFleetShip.payload.isImmediate) {
-          // 함대 선박 split 액션 (TWILIGHT_NAV) + 가이아포머 배치
-          const fsaRes = await roomApi.fleetShipAction(roomId, playerId, pendingFleetShip.payload.actionCode);
-          if (!fsaRes.data.success) { setConfirmError(fsaRes.data.message || '함대 액션 실패'); return; }
-          const res = await roomApi.deployGaiaformer(roomId, playerId, gaiaformerAction!.payload.hexQ, gaiaformerAction!.payload.hexR, gaiaformerAction!.payload.qicUsed);
-          if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
-
-        } else if (powerAction && mineAction) {
-          // 파워 테라포밍 액션 + 광산 건설 콤보
-          const pwrRes = await roomApi.usePowerAction(roomId, playerId, powerAction.payload.powerActionCode, powerAction.payload.useBrainstone);
-          if (!pwrRes.data.success) { setConfirmError(pwrRes.data.message || '파워 액션 실패'); return; }
-          const qicUsed = mineAction.payload.cost?.qic ?? 0;
-          const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
-          const res = await roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount);
-          if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
-
-        } else if (firstAction.type === 'PLACE_MINE') {
-          const qicUsed = firstAction.payload.cost?.qic ?? 0;
-          const gaiaformerUsed = firstAction.payload.gaiaformerUsed ?? false;
-          const res = await roomApi.placeMine(roomId, playerId, firstAction.payload.hexQ, firstAction.payload.hexR, qicUsed, gaiaformerUsed, 0);
-          if (!res.data.success) { setConfirmError(res.data.message || '광산 건설 실패'); return; }
-
-        } else if (firstAction.type === 'UPGRADE_BUILDING') {
-          const { tentativeTechTileCode, tentativeTechTrackCode } = useGameStore.getState();
-          console.log('[UPGRADE] toType:', firstAction.payload.toType, 'tileCode:', tentativeTechTileCode, 'trackCode:', tentativeTechTrackCode);
-          const res = await roomApi.upgradeBuilding(
-            roomId, playerId, firstAction.payload.hexQ, firstAction.payload.hexR, firstAction.payload.toType,
-            tentativeTechTileCode ?? undefined,
-            tentativeTechTrackCode ?? undefined,
-            firstAction.payload.academyType ?? undefined
-          );
-          if (!res.data.success) { setConfirmError(res.data.message || '건물 업그레이드 실패'); return; }
-
-        } else if (firstAction.type === 'POWER_ACTION') {
-          const code: string = firstAction.payload.powerActionCode;
-          const res = await roomApi.usePowerAction(roomId, playerId, code, firstAction.payload.useBrainstone);
-          if (!res.data.success) { setConfirmError(res.data.message || '파워 액션 실패'); return; }
-
-        } else if (firstAction.type === 'FLEET_PROBE') {
-          const navQic = firstAction.payload.cost?.qic ?? 0;
-          const res = await fleetApi.placeFleetProbe(roomId, playerId, firstAction.payload.fleetName, navQic);
-          if (!res.data.success) { setConfirmError(res.data.message || '함대 입장 실패'); return; }
-
-        } else if (firstAction.type === 'ADVANCE_TECH') {
-          const res = await roomApi.advanceTechTrack(roomId, playerId, firstAction.payload.trackCode);
-          if (!res.data.success) { setConfirmError(res.data.message || '기술 트랙 전진 실패'); return; }
-
-        } else if (firstAction.type === 'DEPLOY_GAIAFORMER') {
-          const res = await roomApi.deployGaiaformer(roomId, playerId, firstAction.payload.hexQ, firstAction.payload.hexR, firstAction.payload.qicUsed);
-          if (!res.data.success) { setConfirmError(res.data.message || '가이아포머 배치 실패'); return; }
-
-        } else if (firstAction.type === 'FLEET_SHIP_ACTION') {
-          // 즉시 처리 함대 선박 액션 (hex/track 포함)
-          const fsa = firstAction as FleetShipAction;
-          // REBELLION_TECH / TWILIGHT_UPGRADE: tentativeTechTileCode/TrackCode에서 타일+트랙 코드 읽기
-          const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack } = useGameStore.getState();
-          const needsTile = fsa.payload.actionCode === 'REBELLION_TECH' || fsa.payload.actionCode === 'TWILIGHT_UPGRADE';
-          const needsArtifact = fsa.payload.actionCode === 'TWILIGHT_ARTIFACT';
-          const trackCode = needsTile
-            ? techTile ?? undefined
-            : needsArtifact
-              ? techTile ?? (fsa.payload as any).artifactCode ?? undefined
-              : fsa.payload.trackCode;
-          const techTrackCode = needsTile
-            ? techTrack ?? undefined
-            : undefined;
-          const res = await roomApi.fleetShipAction(
-            roomId, playerId, fsa.payload.actionCode,
-            fsa.payload.hexQ, fsa.payload.hexR, trackCode, techTrackCode
-          );
-          if (!res.data.success) { setConfirmError(res.data.message || '함대 액션 실패'); return; }
-
-        } else if (firstAction.type === 'TECH_TILE_ACTION') {
-          const res = await roomApi.useTechTileAction(roomId, playerId, firstAction.payload.tileCode);
-          if (!res.data.success) { setConfirmError(res.data.message || '기술 타일 액션 실패'); return; }
-
-        } else if (firstAction.type === 'FORM_FEDERATION') {
-          const res = await roomApi.formFederation(roomId, playerId, firstAction.payload.tileCode, firstAction.payload.placedTokens, firstAction.payload.selectedBuildings);
-          if (!res.data.success) { setConfirmError(res.data.message || '연방 형성 실패'); return; }
-
-        } else {
-          // 기타 액션: confirmAction으로 기록
-          const res = await roomApi.confirmAction(roomId, playerId, firstAction.type, JSON.stringify(firstAction.payload));
-          if (!res.data.success) { setConfirmError(res.data.message || '액션 확정 실패'); return; }
-        }
+        const plan = buildConfirmPlan(roomId, playerId, turnState.pendingActions);
+        const result = await executeConfirmPlan(plan);
+        if (!result.success) { setConfirmError(result.error || '액션 확정 실패'); return; }
 
       } else {
         // SETUP 페이즈: 기존 방식
@@ -890,6 +706,14 @@ export default function LobbyPage() {
       clearPendingActions(true);  // 프리뷰 유지 (WS 이벤트로 갱신될 때까지 깜빡임 방지)
       setDeferredAction(null);    // deferred 배너 해제
       setTechRefreshKey(k => k + 1);
+      // 상태 갱신 (사용한 액션 코드 + 플레이어 상태)
+      if (roomId) {
+        const [refreshRes] = await Promise.all([
+          roomApi.getPlayerStates(roomId),
+          loadUsedPowerActions(),
+        ]);
+        setPlayerStates(refreshRes.data);
+      }
 
     } catch (err: any) {
       const errorMsg = err.response?.data?.message || '턴 확정 중 오류 발생';
@@ -959,7 +783,10 @@ export default function LobbyPage() {
       {/* 상단 정보 */}
       <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-700/40">
         <div className="flex items-center gap-2">
-          <h1 className="text-sm font-bold tracking-tight text-white/90">Gaia Project</h1>
+          <h1
+            className="text-sm font-bold tracking-tight text-white/90 cursor-pointer hover:text-emerald-300 transition"
+            onClick={() => window.location.href = '/'}
+          >Gaia Project</h1>
           <div className="flex items-center gap-2 text-xs text-gray-400">
             <span>{nickname}</span>
             <span className="text-gray-600">|</span>
@@ -1046,8 +873,8 @@ export default function LobbyPage() {
         {/* 중앙: 맵 */}
         <div className="w-[40%] min-h-0 min-w-0 overflow-hidden pb-2 relative">
           <HexMap roomId={roomId!} playerStates={playerStates} seats={seats} />
-          {/* 초기화/확정/패스 - 맵 우측 상단 오버레이 (메시지 배너 아래) */}
-          <div className="absolute top-10 right-2 z-20" style={{ width: '100px' }}>
+          {/* 확정/초기화/패스 - 안내문 배너 오른쪽에 배치 */}
+          <div className="absolute top-0 right-0 z-20" style={{ width: '15%', minWidth: 60 }}>
             <TurnConfirmationPanel
               isMyTurn={isMyTurn}
               gamePhase={gamePhase}
@@ -1094,6 +921,7 @@ export default function LobbyPage() {
             isMyTurn={isMyTurn}
             playerStates={playerStates}
           />
+
         </div>
       </div>
 

@@ -118,11 +118,13 @@ export function getTerraformDiscount(pendingActions: { type: string; payload: an
   );
   if (fleetAct) return fleetAct.payload.terraformDiscount ?? 1;
 
-  // 팩션 능력: SPACE_GIANTS_TERRAFORM_2 (2삽 테라포밍)
+  // 팩션 능력: 테라포밍 (스페이스자이언트 2삽, 팅커로이드 1삽/3삽)
   const factionAct = pendingActions.find(
-    a => a.type === 'FACTION_ABILITY' && a.payload.abilityCode === 'SPACE_GIANTS_TERRAFORM_2',
+    a => a.type === 'FACTION_ABILITY' &&
+      (a.payload.abilityCode === 'SPACE_GIANTS_TERRAFORM_2' ||
+       (a.payload.abilityCode === 'TINKEROIDS_USE_ACTION' && a.payload.terraformDiscount > 0)),
   );
-  if (factionAct) return factionAct.payload.terraformDiscount ?? 2;
+  if (factionAct) return factionAct.payload.terraformDiscount ?? 1;
 
   return 0;
 }

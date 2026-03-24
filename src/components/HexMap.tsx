@@ -9,6 +9,9 @@ import { UPGRADE_OPTIONS } from '../constants/gameCosts';
 
 import { PLANET_COLORS, VIVID_BORDER_COLORS } from '../constants/colors';
 import { HOME_PLANET_TYPES, getTerraformDiscount, getNavBonus } from '../utils/terraformingCalculator';
+import { analyzePending } from '../actions/pendingAnalyzer';
+import { isHexClickable as isHexClickableRules } from '../actions/hexClickRules';
+import { handleHexClick as handleHexClickRules } from '../actions/hexClickHandler';
 import { getNavigationCost, navLevelToRange, getNavRangeBonus } from '../utils/navigationCalculator';
 import { calcMineCost } from '../utils/mineActionCalculator';
 import { calcUpgradeCost, calcLeechInfo, type LeechInfo } from '../utils/upgradeCalculator';
@@ -181,12 +184,12 @@ function VpPanel({
   if (playerStates.length === 0) return null;
 
   return (
-      <div className="absolute top-8 left-2 bg-gray-800/90 p-2 rounded text-[10px] z-10">
-        <div className="font-bold text-orange-400 mb-1">VP</div>
+      <div className="absolute z-10" style={{ bottom: '3cqw', right: '0.5cqw', backgroundColor: 'rgba(31,41,55,0.9)', padding: '0.35cqw', borderRadius: '0.3cqw', fontSize: '1.3cqw' }}>
+        <div className="font-bold text-orange-400" style={{ marginBottom: '0.2cqw' }}>VP</div>
         {playerStates.map((ps) => {
           const seat = seatBySeatNo.get(ps.seatNo);
           return (
-              <div key={ps.seatNo} className="flex justify-between gap-2">
+              <div key={ps.seatNo} className="flex justify-between" style={{ gap: '0.5cqw' }}>
             <span style={{ color: PLANET_COLORS[seat?.homePlanetType || 'TERRA'] }}>
               {seat?.raceNameKo || `P${ps.seatNo}`}:
             </span>
@@ -209,16 +212,16 @@ function RemovedPomerPanel({
   if (players.length === 0) return null;
 
   return (
-    <div className="absolute bottom-2 left-2 bg-gray-800/90 p-2 rounded text-[10px] z-10">
-      <div className="flex items-center gap-1 font-bold text-purple-300 mb-1">
-        <img src={pomerImg} className="w-3 h-3" />
+    <div className="absolute z-10" style={{ bottom: '3cqw', left: '0.5cqw', backgroundColor: 'rgba(31,41,55,0.9)', padding: '0.35cqw', borderRadius: '0.3cqw', fontSize: '1.3cqw' }}>
+      <div className="flex items-center font-bold text-purple-300" style={{ gap: '0.2cqw', marginBottom: '0.15cqw' }}>
+        <img src={pomerImg} style={{ width: '1.3cqw', height: '1.3cqw' }} />
         <span>영구제거</span>
       </div>
       {players.map((ps) => {
         const seat = seatBySeatNo.get(ps.seatNo);
         const color = PLANET_COLORS[seat?.homePlanetType || 'TERRA'];
         return (
-          <div key={ps.seatNo} className="flex justify-between gap-2">
+          <div key={ps.seatNo} className="flex justify-between" style={{ gap: '0.5cqw' }}>
             <span style={{ color }}>{seat?.raceNameKo || `P${ps.seatNo}`}:</span>
             <span className="font-bold">{ps.permanentlyRemovedGaiaformers}</span>
           </div>
@@ -269,47 +272,49 @@ function Legend({ seats }: { seats: SeatView[] }) {
 
   if (activeSeatNos.length === 0) return null;
 
+  const renderPlanetIcon = (t: string) => {
+    const img = PLANET_IMAGES[t];
+    if (img) return <img src={img} style={{ width: '2.5cqw', height: '2.5cqw' }} className="flex-shrink-0 rounded-full object-cover" title={t} draggable={false} />;
+    // 이미지 없으면 색상 원 폴백
+    const color = PLANET_COLORS[t] ?? '#666';
+    return <div className="rounded-full flex-shrink-0" style={{ width: '2.5cqw', height: '2.5cqw', backgroundColor: color }} title={t} />;
+  };
+
+  const renderMarker = (sn: number, t: string) => {
+    const seat = seats.find(s => s.seatNo === sn);
+    const pc = PLANET_COLORS[seat?.homePlanetType ?? ''] ?? '#aaa';
+    const displayColor = pc === '#b8d4e3' ? '#cde' : pc;
+    const count = countBySeat.get(sn)?.get(t) ?? 0;
+    if (t === 'GAIA') {
+      return (
+        <div key={sn} className="flex items-center" style={{ gap: '0.2cqw' }}>
+          <div className="rounded-full flex-shrink-0" style={{ width: '1.5cqw', height: '1.5cqw', backgroundColor: displayColor }} />
+          <span className="font-bold leading-none text-white" style={{ fontSize: '1.4cqw' }}>{count}</span>
+        </div>
+      );
+    }
+    return <div key={sn} className="rounded-full flex-shrink-0" style={{ width: '1.5cqw', height: '1.5cqw', backgroundColor: displayColor }} />;
+  };
+
   return (
-    <div className="mt-1 flex justify-center flex-shrink-0">
-      <div className="flex items-start gap-1">
+    <div className="flex justify-center flex-shrink-0" style={{ marginTop: '0.3cqw' }}>
+      <div className="flex items-start" style={{ gap: '0.5cqw' }}>
         {LEGEND_HOME_TYPES.map(t => {
-          const color = PLANET_COLORS[t] ?? '#666';
-          const border = color === '#000000' ? '1px solid #666' : undefined;
           const markers = activeSeatNos.filter(sn => (countBySeat.get(sn)?.get(t) ?? 0) > 0);
           return (
-            <div key={t} className="flex flex-col items-center gap-0.5">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color, border }} title={t} />
-              {markers.map(sn => {
-                const seat = seats.find(s => s.seatNo === sn);
-                const pc = PLANET_COLORS[seat?.homePlanetType ?? ''] ?? '#aaa';
-                return <div key={sn} className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: pc === '#b8d4e3' ? '#cde' : pc }} />;
-              })}
+            <div key={t} className="flex flex-col items-center" style={{ gap: '0.2cqw' }}>
+              {renderPlanetIcon(t)}
+              {markers.map(sn => renderMarker(sn, t))}
             </div>
           );
         })}
-        <div className="w-px self-stretch bg-gray-600 mx-0.5" />
+        <div className="self-stretch bg-gray-600" style={{ width: '1px', margin: '0 0.2cqw' }} />
         {LEGEND_OTHER_TYPES.map(t => {
-          const color = PLANET_COLORS[t] ?? '#666';
-          const border = color === '#b8d4e3' || color === '#000000' ? '1px solid #666' : undefined;
           const markers = activeSeatNos.filter(sn => (countBySeat.get(sn)?.get(t) ?? 0) > 0);
           return (
-            <div key={t} className="flex flex-col items-center gap-0.5">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color, border }} title={t} />
-              {markers.map(sn => {
-                const seat = seats.find(s => s.seatNo === sn);
-                const pc = PLANET_COLORS[seat?.homePlanetType ?? ''] ?? '#aaa';
-                const displayColor = pc === '#b8d4e3' ? '#cde' : pc;
-                const count = countBySeat.get(sn)?.get(t) ?? 0;
-                if (t === 'GAIA') {
-                  return (
-                    <div key={sn} className="flex items-center gap-0.5">
-                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: displayColor }} />
-                      <span className="text-[8px] font-bold leading-none text-white">{count}</span>
-                    </div>
-                  );
-                }
-                return <div key={sn} className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: displayColor }} />;
-              })}
+            <div key={t} className="flex flex-col items-center" style={{ gap: '0.2cqw' }}>
+              {renderPlanetIcon(t)}
+              {markers.map(sn => renderMarker(sn, t))}
             </div>
           );
         })}
@@ -397,7 +402,7 @@ function renderBuildingShape(
     }).join(' ');
     return (
       <g pointerEvents="none" opacity={opacity}>
-        <polygon points={points} fill={color} stroke={borderColor} strokeWidth="1.5" />
+        <polygon points={points} fill={color} stroke={borderColor} strokeWidth="2.5" />
       </g>
     );
   }
@@ -421,7 +426,7 @@ function renderBuildingShape(
       <defs>
         <filter id={filterId} x="-10%" y="-10%" width="120%" height="120%">
           {/* 이미지 모양 따라 테두리 생성 */}
-          <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated" />
+          <feMorphology in="SourceAlpha" operator="dilate" radius="3" result="dilated" />
           <feFlood floodColor={borderColor} floodOpacity="1" result="colorFlood" />
           <feComposite in="colorFlood" in2="dilated" operator="in" result="outline" />
           {/* 이미지 colorize */}
@@ -607,6 +612,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
     moweidsExtraRingPlanet,
     addPendingAction,
     updateLastPendingActionPayload,
+    completeFleetShipHexSelection,
     addTentativeBuilding,
     updatePreviewState,
     clearFleetShipMode,
@@ -619,6 +625,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
     federationGroups,
     techTileData,
     selectingPassBooster,
+    tentativeTechTileCode,
   } = useGameStore();
 
   const { hexes: localHexes, loading, error } = useHexes(roomId);
@@ -764,239 +771,23 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
       [seatByPlayerId],
   );
 
-  const isHexClickable = useCallback(
+  const isHexClickableLocal = useCallback(
       (hex: GameHex) => {
-        // 연방 모드: 건물 선택 (란티다 기생 광산 포함)
-        if (federationMode && federationMode.phase === 'SELECT_BUILDINGS') {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          const parasite = lantidsParasiteByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          return (building?.playerId === playerId) || (parasite?.playerId === playerId);
-        }
-        // 연방 모드: 토큰 배치 (EMPTY 헥스만, 행성 불가)
-        if (federationMode && federationMode.phase === 'PLACE_TOKENS') {
-          const sectorId = getSectorIdFromHex(hex);
-          if (sectorId?.startsWith('FORGOTTEN_FLEET_')) return false;
-          // 행성이 있는 헥스에는 토큰 배치 불가
-          if (hex.planetType !== 'EMPTY') return false;
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          // 내 건물 위에는 토큰 불필요 (자동 포함됨)
-          if (building?.playerId === playerId) return false;
-          return true;
-        }
-        if (federationMode) return false; // SELECT_TILE 단계에서는 맵 클릭 불가
-
-        if (!isMyTurn) return false;
-        if (!mySeat) return false;
-
-        // 함대 선박 hex 선택 모드
-        if (fleetShipMode) {
-          const sectorId = getSectorIdFromHex(hex);
-          if (sectorId?.startsWith('FORGOTTEN_FLEET_')) return false;
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          if (fleetShipMode.needsGaiaformHex) {
-            return hex.planetType === 'TRANSDIM' && !building;
-          }
-          if (fleetShipMode.needsAsteroidHex) {
-            return hex.planetType === 'ASTEROIDS' && !building;
-          }
-          if (fleetShipMode.needsUpgradeMineToTs) {
-            return building?.playerId === playerId && building?.buildingType === 'MINE';
-          }
-          if (fleetShipMode.needsTsToRl) {
-            return building?.playerId === playerId && building?.buildingType === 'TRADING_STATION';
-          }
-          return false;
-        }
-
-        const pending = turnState.pendingActions;
-        const terraformDiscount = getTerraformDiscount(pending);
-        const navBonus = getNavBonus(pending);
-        // 테라포밍 pending: 광산 배치 전 상태
-        const hasPendingTerraform = terraformDiscount > 0 && !pending.some(a => a.type === 'PLACE_MINE');
-        // 항법 보너스 pending: 광산/우주선 배치 전 상태
-        const hasPendingNavBoost = navBonus > 0 && !pending.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-        // BOOSTER_12 즉시 포밍: 광산 배치 전 상태
-        const boosterAct = pending.find(a => a.type === 'BOOSTER_ACTION') as BoosterAction | undefined;
-        const hasPendingGaiaformerBooster = boosterAct?.payload.actionType === 'PLACE_GAIAFORMER' && !pending.some(a => a.type === 'PLACE_MINE');
-        // 하이브 우주정거장 pending 확인
-        const ivitsStationPending = pending.some(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'IVITS_PLACE_STATION'
-        ) && !pending.some(a => a.type === 'PLACE_MINE');
-        // 파이락 다운그레이드: 연구소 선택 대기 (hexQ 미설정)
-        const firaksPending = pending.some(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'FIRAKS_DOWNGRADE' && !(a.payload as any).hexQ
-        );
-        // 엠바스 교환: 광산 선택 대기 (hexQ 미설정)
-        const ambasPending = pending.some(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'AMBAS_SWAP' && !(a.payload as any).hexQ
-        );
-        // 모웨이드 링: 건물 선택 대기 (hexQ 미설정)
-        const moweidsRingPending = pending.some(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'MOWEIDS_RING' && !(a.payload as any).hexQ
-        );
-const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster && !ivitsStationPending && !firaksPending && !ambasPending && !moweidsRingPending;
-
-        // 하이브 우주정거장: EMPTY 헥스 + 항법 거리 이내
-        if (ivitsStationPending) {
-          const bldg = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          if (hex.planetType !== 'EMPTY' || bldg) return false;
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState) return false;
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId);
-          const { reachable } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-          return reachable;
-        }
-
-        // 파이락 다운그레이드: 내 연구소만 클릭 가능
-        if (firaksPending) {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          return building?.playerId === playerId && building?.buildingType === 'RESEARCH_LAB';
-        }
-
-        // 엠바스 교환: 내 광산만 클릭 가능
-        if (ambasPending) {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          return building?.playerId === playerId && building?.buildingType === 'MINE';
-        }
-
-        // 모웨이드 링: 내 건물 (링 없는) 클릭 가능
-        if (moweidsRingPending) {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          return !!building && building.playerId === playerId && !(building as any).hasRing;
-        }
-
-        // 함대 헥스 (FORGOTTEN_FLEET_*)
-        const sectorId = getSectorIdFromHex(hex);
-        if (sectorId?.startsWith('FORGOTTEN_FLEET_')) {
-          // 항법 보너스 pending 중에는 우주선 입장 허용 (테라포밍 pending, 기타 pending은 차단)
-          if (hasOtherPending || hasPendingTerraform) return false;
-          if (gamePhase !== 'PLAYING') return false;
-          const fleetName = sectorId.replace('FORGOTTEN_FLEET_', '');
-          if (playerId && (fleetProbes[fleetName] || []).includes(playerId)) return false;
-          // 플레이어당 최대 3개 함대 입장 제한
-          if (playerId) {
-            const myFleetCount = Object.values(fleetProbes).filter(ids => ids.includes(playerId)).length;
-            if (myFleetCount >= 3) return false;
-          }
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState || myState.victoryPoints < 5) return false;
-          // 네블라/아이타: 우주선 입장 시 토큰 1개 소각 필요
-          if ((myState.factionCode === 'NEVLAS' || myState.factionCode === 'ITARS')
-              && (myState.powerBowl1 + myState.powerBowl2 + myState.powerBowl3) <= 0) return false;
-          // 항법 거리 체크 (광산과 동일: navRange + navBonus, QIC로 추가 확장 가능)
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-          const { reachable } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-          return reachable;
-        }
-
-        if (hasOtherPending) return false;
-
-        // BOOSTER_12 즉시 포밍: TRANSDIM 행성에 가이아포머 배치 (파워 비용 없음)
-        if (hasPendingGaiaformerBooster) {
-          if (hex.planetType !== 'TRANSDIM') return false;
-          const bldg = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          if (bldg) return false;
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState || myState.stockGaiaformer < 1) return false;
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-          const { reachable } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-          return reachable;
-        }
-
-        const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-
-        // TRANSDIM → 가이아포머 배치 (테라포밍 pending 중엔 불가, 항법 보너스 중엔 가능)
-        if (hex.planetType === 'TRANSDIM' && !building && gamePhase === 'PLAYING' && !hasPendingTerraform) {
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState || myState.stockGaiaformer < 1) return false;
-          const gaiaLevel = myState.techGaia;
-          const requiredPower = gaiaLevel <= 2 ? 6 : gaiaLevel === 3 ? 4 : gaiaLevel === 4 ? 5 : 4;
-          const totalPower = myState.powerBowl1 + myState.powerBowl2 + myState.powerBowl3;
-          if (totalPower < requiredPower) return false;
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-          const { reachable } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-          return reachable;
-        }
-
-        // 클릭 가능한 행성 타입 필터
-        // 링 7종, 홈 행성, 소행성(가이아포머), 원시행성(3삽), 가이아(확장 종족만)
-        const isMineable =
-          HOME_PLANET_TYPES.has(hex.planetType) ||
-          hex.planetType === mySeat.homePlanetType ||
-          hex.planetType === 'ASTEROIDS' ||
-          hex.planetType === 'LOST_PLANET' ||
-          hex.planetType === 'GAIA';
-        if (!isMineable) return false;
-
-        if (building) {
-          // GAIA 행성에 내 가이아포머가 있는 경우 → 광산 건설 가능
-          if (gamePhase === 'PLAYING' && building.playerId === playerId && building.buildingType === 'GAIAFORMER' && hex.planetType === 'GAIA') {
-            const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-            if (!myState) return false;
-            return myState.credit >= 2 && myState.ore >= 1;
-          }
-          // 이미 건물 있는 헥스 (navBoost/terraform pending 중엔 업그레이드 불가)
-          if (gamePhase === 'PLAYING' && building.playerId === playerId && !hasPendingTerraform && !hasPendingNavBoost) {
-            const options = UPGRADE_OPTIONS[building.buildingType];
-            if (!options) return false;
-            const myState = turnState.previewPlayerState || playerStates.find(p => p.seatNo === mySeatNo);
-            if (!myState) return true;
-            const allBuildings = [...buildings, ...turnState.tentativeBuildings];
-            return options.some(toType => {
-              const cost = calcUpgradeCost(building.buildingType, toType, building.hexQ, building.hexR, allBuildings, playerId!);
-              return ResourceCalculator.canAfford(myState, cost);
-            });
-          }
-          // 란티다: 상대 건물 위에 기생 광산 가능 (이미 기생한 곳 제외)
-          if (gamePhase === 'PLAYING' && mySeat?.raceCode === 'LANTIDS'
-              && building.playerId !== playerId && !lantidsParasiteByCoord.has(`${hex.hexQ},${hex.hexR}`)) {
-            if (hasPendingTerraform || hasOtherPending) return false;
-            const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-            if (!myState || myState.stockMine <= 0) return false;
-            // 비용 체크: 2c + 1o
-            if (myState.credit < 2 || myState.ore < 1) return false;
-            // 항법 거리 체크
-            const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-            const navBonus = getNavBonus(turnState.pendingActions);
-            const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-            const { reachable } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-            return reachable;
-          }
-          return false;
-        }
-
-        const isSetupPhase = gamePhase?.startsWith('SETUP_MINE');
-        if (isSetupPhase) {
-          return hex.planetType === mySeat.homePlanetType;
-        }
-
-        if (gamePhase === 'PLAYING') {
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState) return false;
-
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-          const { reachable, qicNeeded: navQic } = getNavigationCost(
-            hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic,
-          );
-          if (!reachable) return false;
-
-          const result = calcMineCost(
-            hex.planetType, mySeat.raceCode, mySeat.homePlanetType,
-            myState.techTerraforming, terraformDiscount, myState, seats, navQic,
-            tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet,
-          );
-          return result.possible;
-        }
-
-        return false;
+        return isHexClickableRules({
+          hex, playerId, mySeatNo,
+          mySeat: mySeat ? { raceCode: mySeat.raceCode, homePlanetType: mySeat.homePlanetType } : null,
+          gamePhase, isMyTurn, buildingByCoord, buildings,
+          tentativeBuildings: turnState.tentativeBuildings,
+          pendingActions: turnState.pendingActions,
+          previewPlayerState: turnState.previewPlayerState,
+          playerStates, fleetShipMode, federationMode,
+          fleetProbes, techTileData, lantidsParasiteByCoord,
+          seats, tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet,
+          tentativeTechTileCode,
+        });
       },
       [isMyTurn, mySeat, playerId, buildingByCoord, buildings, turnState.pendingActions,
-       turnState.previewPlayerState, turnState.tentativeBuildings, gamePhase, playerStates, mySeatNo, fleetProbes, fleetShipMode, federationMode, lantidsParasiteByCoord],
+       turnState.previewPlayerState, turnState.tentativeBuildings, gamePhase, playerStates, mySeatNo, fleetProbes, fleetShipMode, federationMode, lantidsParasiteByCoord, tentativeTechTileCode],
   );
 
   /** 업그레이드 액션 추가 */
@@ -1046,346 +837,35 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
   /** 헥스 클릭 - 셋업 광산 / PLAYING 광산·업그레이드 / 연방 */
   const handleHexClick = useCallback(
       (hex: GameHex) => {
-        // 연방 모드: 건물 선택
-        if (federationMode && federationMode.phase === 'SELECT_BUILDINGS') {
-          const already = federationMode.selectedBuildings.some(h => h[0] === hex.hexQ && h[1] === hex.hexR);
-          if (already) removeFederationBuilding(hex.hexQ, hex.hexR);
-          else addFederationBuilding(hex.hexQ, hex.hexR);
-          return;
-        }
-        // 연방 모드: 토큰 배치
-        if (federationMode && federationMode.phase === 'PLACE_TOKENS') {
-          const already = federationMode.placedTokens.some(h => h[0] === hex.hexQ && h[1] === hex.hexR);
-          if (already) removeFederationToken(hex.hexQ, hex.hexR);
-          else addFederationToken(hex.hexQ, hex.hexR);
-          return;
-        }
-        if (federationMode) return;
-
-        if (!isMyTurn || !mySeat || !playerId) return;
-
-        // 함대 선박 hex 선택 모드: 이미 추가된 pending action에 좌표 업데이트
-        if (fleetShipMode) {
-          updateLastPendingActionPayload({ hexQ: hex.hexQ, hexR: hex.hexR });
-          clearFleetShipMode();
-          // 건물 업그레이드 모드는 임시 건물 변경 표시
-          if (fleetShipMode.needsUpgradeMineToTs) {
-            addTentativeBuilding({ id: `temp-${Date.now()}`, gameId: roomId, playerId, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'TRADING_STATION' });
-          } else if (fleetShipMode.needsTsToRl) {
-            addTentativeBuilding({ id: `temp-${Date.now()}`, gameId: roomId, playerId, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'RESEARCH_LAB' });
-          } else if (fleetShipMode.needsGaiaformHex) {
-            addTentativeBuilding({ id: `temp-${Date.now()}`, gameId: roomId, playerId, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'GAIAFORMER' });
-          } else {
-            // 광산 건설 (asteroid 등)
-            addTentativeBuilding({ id: `temp-${Date.now()}`, gameId: roomId, playerId, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'MINE' });
-          }
-          return;
-        }
-
-        const pending = turnState.pendingActions;
-        const terraformDiscount = getTerraformDiscount(pending);
-        const navBonus = getNavBonus(pending);
-        const hasPendingTerraform = terraformDiscount > 0 && !pending.some(a => a.type === 'PLACE_MINE');
-        const hasPendingNavBoost = navBonus > 0 && !pending.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-        const boosterActClick = pending.find(a => a.type === 'BOOSTER_ACTION') as BoosterAction | undefined;
-        const hasPendingGaiaformerBooster = boosterActClick?.payload.actionType === 'PLACE_GAIAFORMER' && !pending.some(a => a.type === 'PLACE_MINE');
-
-        // 하이브 우주정거장: EMPTY 헥스 클릭 시 좌표를 pending에 기록
-        const ivitsStationPendingClick = pending.find(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'IVITS_PLACE_STATION'
-        );
-        if (ivitsStationPendingClick && hex.planetType === 'EMPTY') {
-          // 좌표를 payload에 추가하고 tentative building으로 표시
-          (ivitsStationPendingClick.payload as any).hexQ = hex.hexQ;
-          (ivitsStationPendingClick.payload as any).hexR = hex.hexR;
-          addTentativeBuilding({ id: `temp-station-${Date.now()}`, gameId: roomId, playerId: playerId!, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'SPACE_STATION' });
-          return;
-        }
-
-        // 파이락 다운그레이드: 연구소 클릭 시 좌표 기록 → 트랙 선택은 TechTracks에서
-        const firaksPendingClick = pending.find(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'FIRAKS_DOWNGRADE' && !(a.payload as any).hexQ
-        );
-        if (firaksPendingClick) {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          if (building?.playerId === playerId && building?.buildingType === 'RESEARCH_LAB') {
-            (firaksPendingClick.payload as any).hexQ = hex.hexQ;
-            (firaksPendingClick.payload as any).hexR = hex.hexR;
-            // tentative: 연구소 → 교역소로 변경
-            addTentativeBuilding({ id: `temp-firaks-${Date.now()}`, gameId: roomId, playerId: playerId!, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'TRADING_STATION' });
-          }
-          return;
-        }
-
-        // 엠바스 교환: 광산 클릭 시 좌표 기록
-        const ambasPendingClick = pending.find(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'AMBAS_SWAP' && !(a.payload as any).hexQ
-        );
-        if (ambasPendingClick) {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          if (building?.playerId === playerId && building?.buildingType === 'MINE') {
-            (ambasPendingClick.payload as any).hexQ = hex.hexQ;
-            (ambasPendingClick.payload as any).hexR = hex.hexR;
-            // tentative: 광산 → 의회로 변경 표시
-            addTentativeBuilding({ id: `temp-ambas-${Date.now()}`, gameId: roomId, playerId: playerId!, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'PLANETARY_INSTITUTE' });
-            updatePreviewState();
-          }
-          return;
-        }
-
-        // 모웨이드 링: 건물 클릭 시 좌표 기록
-        const moweidsRingPendingClick = pending.find(
-          a => a.type === 'FACTION_ABILITY' && (a.payload as any).abilityCode === 'MOWEIDS_RING' && !(a.payload as any).hexQ
-        );
-        if (moweidsRingPendingClick) {
-          const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-          if (building?.playerId === playerId && !(building as any).hasRing) {
-            (moweidsRingPendingClick.payload as any).hexQ = hex.hexQ;
-            (moweidsRingPendingClick.payload as any).hexR = hex.hexR;
-            updatePreviewState();
-          }
-          return;
-        }
-
-        // 테라포밍/항법 보너스 액션 이외의 경우 이미 다른 액션이 있으면 차단
-        if (pending.length > 0 && !hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster) {
-          alert('이미 액션을 선택했습니다. 확정하거나 초기화하세요.');
-          return;
-        }
-
-        // --- 함대 입장 ---
-        const sectorId = getSectorIdFromHex(hex);
-        if (sectorId?.startsWith('FORGOTTEN_FLEET_')) {
-          const fleetName = sectorId.replace('FORGOTTEN_FLEET_', '');
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = myState ? navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus : navBonus;
-          const { qicNeeded: navQic } = getNavigationCost(
-            hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState?.qic ?? 0,
-          );
-          const baseCost = BUILDING_COSTS.FLEET_PROBE.base;
-          const cost = navQic > 0 ? { ...baseCost, qic: (baseCost.qic ?? 0) + navQic } : baseCost;
-          const slotIndex = (fleetProbes[fleetName] || []).length;
-          const powerCharge = (slotIndex === 1 || slotIndex === 2) ? 2 : slotIndex === 3 ? 3 : 0;
-          const action: FleetProbeAction = {
-            id: `action-${Date.now()}-${Math.random()}`,
-            type: 'FLEET_PROBE',
-            timestamp: Date.now(),
-            payload: { fleetName, cost, powerCharge },
-          };
-          addPendingAction(action);
-          return;
-        }
-
-        // --- TRANSDIM: 가이아포머 배치 ---
-        if (hex.planetType === 'TRANSDIM') {
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState) return;
-          const gaiaLevel = myState.techGaia;
-          const powerSpent = gaiaLevel <= 2 ? 6 : gaiaLevel === 3 ? 4 : gaiaLevel === 4 ? 5 : 4;
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-          const { qicNeeded: navQic } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-          const action: DeployGaiaformerAction = {
-            id: `action-${Date.now()}-${Math.random()}`,
-            type: 'DEPLOY_GAIAFORMER',
-            timestamp: Date.now(),
-            payload: { hexQ: hex.hexQ, hexR: hex.hexR, powerSpent, qicUsed: navQic },
-          };
-          addPendingAction(action);
-          addTentativeBuilding({
-            id: `temp-${Date.now()}`,
-            gameId: roomId,
-            playerId,
-            hexQ: hex.hexQ,
-            hexR: hex.hexR,
-            buildingType: 'GAIAFORMER',
-          });
-          return;
-        }
-
-        const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-
-        // --- GAIA 행성에 내 가이아포머 → 광산 건설 ---
-        if (building && building.playerId === playerId && building.buildingType === 'GAIAFORMER' && hex.planetType === 'GAIA') {
-          const cost = { credit: 2, ore: 1 };
-          const action: PlaceMineAction = {
-            id: `action-${Date.now()}-${Math.random()}`,
-            type: 'PLACE_MINE',
-            timestamp: Date.now(),
-            payload: { hexQ: hex.hexQ, hexR: hex.hexR, cost },
-          };
-          addPendingAction(action);
-          addTentativeBuilding({
-            id: `temp-${Date.now()}`,
-            gameId: roomId,
-            playerId,
-            hexQ: hex.hexQ,
-            hexR: hex.hexR,
-            buildingType: 'MINE',
-          });
-          return;
-        }
-
-        // --- BOOSTER_12 즉시 포밍: TRANSDIM 행성 가이아포머 배치 (파워 비용 없음) ---
-        if (hasPendingGaiaformerBooster && hex.planetType === 'TRANSDIM' && !building && gamePhase === 'PLAYING') {
-          const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-          if (!myState) return;
-          const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-          const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-          const { qicNeeded: navQic } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-          const action: DeployGaiaformerAction = {
-            id: `action-${Date.now()}-${Math.random()}`,
-            type: 'DEPLOY_GAIAFORMER',
-            timestamp: Date.now(),
-            payload: { hexQ: hex.hexQ, hexR: hex.hexR, powerSpent: 0, qicUsed: navQic },
-          };
-          addPendingAction(action);
-          addTentativeBuilding({
-            id: `temp-${Date.now()}`,
-            gameId: roomId,
-            playerId,
-            hexQ: hex.hexQ,
-            hexR: hex.hexR,
-            buildingType: 'GAIAFORMER',
-          });
-          return;
-        }
-
-        const isSetupPhase = gamePhase?.startsWith('SETUP_MINE');
-
-        // --- 셋업 페이즈: 광산 (또는 의회) 배치 ---
-        if (isSetupPhase) {
-          const setupBuildingType =
-            (mySeat.raceCode === 'IVITS' || mySeat.raceCode === 'TINKEROIDS')
-              ? 'PLANETARY_INSTITUTE'
-              : 'MINE';
-          const action: PlaceMineAction = {
-            id: `action-${Date.now()}-${Math.random()}`,
-            type: 'PLACE_MINE',
-            timestamp: Date.now(),
-            payload: { hexQ: hex.hexQ, hexR: hex.hexR, cost: { credit: 0, ore: 0 } },
-          };
-          addPendingAction(action);
-          addTentativeBuilding({
-            id: `temp-${Date.now()}`,
-            gameId: roomId,
-            playerId,
-            hexQ: hex.hexQ,
-            hexR: hex.hexR,
-            buildingType: setupBuildingType,
-          });
-          return;
-        }
-
-        // --- PLAYING 페이즈 ---
-        if (gamePhase === 'PLAYING') {
-          // 내 건물 클릭 → 업그레이드 (테라포밍/항법 보너스 pending 중엔 불가)
-          if (building && building.playerId === playerId && !hasPendingTerraform && !hasPendingNavBoost) {
-            const fromType = building.buildingType;
-            const options = UPGRADE_OPTIONS[fromType];
-            if (!options) return;
-            if (options.length === 1) {
-              addUpgradeAction(hex.hexQ, hex.hexR, fromType, options[0]);
-            } else {
-              // 같은 건물 다시 클릭 → 패널 닫기 (토글)
-              if (upgradeChoiceHex?.hexQ === hex.hexQ && upgradeChoiceHex?.hexR === hex.hexR) {
-                setUpgradeChoiceHex(null);
-                return;
-              }
-              const { x: px, y: py } = axialToPixel(hex.hexQ, hex.hexR);
-              setUpgradeChoiceHex({ hexQ: hex.hexQ, hexR: hex.hexR, fromType, px, py });
-            }
+        if (!playerId || !mySeat) {
+          // 연방 모드는 playerId 없어도 처리 가능
+          if (federationMode) {
+            handleHexClickRules(
+              { hex, roomId, playerId: playerId!, mySeatNo: mySeatNo!, mySeat: mySeat as any, gamePhase, isMyTurn, buildingByCoord, buildings, hexes, turnState, playerStates, fleetShipMode, federationMode, fleetProbes, techTileData, lantidsParasiteByCoord, seats, upgradeChoiceHex, tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet, tentativeTechTileCode } as any,
+              { addPendingAction, addTentativeBuilding, completeFleetShipHexSelection, addFederationBuilding, removeFederationBuilding, addFederationToken, removeFederationToken, addUpgradeAction, setUpgradeChoiceHex, updatePreviewState, axialToPixel },
+            );
             return;
           }
-
-          // 란티다 기생 광산: 상대 건물 위에 광산 건설
-          if (building && building.playerId !== playerId && mySeat?.raceCode === 'LANTIDS') {
-            const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-            if (!myState) return;
-            const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-            const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-            const { qicNeeded: navQic } = getNavigationCost(hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic);
-            // 기생 광산 비용: 2c + 1o + 항법 QIC (테라포밍 비용 없음)
-            const cost = { credit: 2, ore: 1, qic: navQic };
-            const action: PlaceMineAction = {
-              id: `action-${Date.now()}-${Math.random()}`,
-              type: 'PLACE_MINE',
-              timestamp: Date.now(),
-              payload: { hexQ: hex.hexQ, hexR: hex.hexR, cost, gaiaformerUsed: false, isLantidsMine: true },
-            };
-            addPendingAction(action);
-            addTentativeBuilding({ id: `temp-${Date.now()}`, gameId: roomId, playerId: playerId!, hexQ: hex.hexQ, hexR: hex.hexR, buildingType: 'MINE', isLantidsMine: true });
-            return;
-          }
-
-          // 빈 행성 → 광산 건설
-          if (!building) {
-            const myState = turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo);
-            if (!myState) return;
-
-            const myBuildings = [...buildings, ...turnState.tentativeBuildings].filter(b => b.playerId === playerId);
-            const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(techTileData, playerId) + navBonus;
-            const { qicNeeded: navQic } = getNavigationCost(
-              hex.hexQ, hex.hexR, myBuildings, effectiveNavRange, myState.qic,
-            );
-
-            const result = calcMineCost(
-              hex.planetType, mySeat.raceCode, mySeat.homePlanetType,
-              myState.techTerraforming, terraformDiscount, myState, seats, navQic,
-            );
-
-            if (!result.possible) {
-              alert('자원이 부족합니다.');
-              return;
-            }
-
-            const cost = { credit: result.credit, ore: result.ore, qic: result.qic };
-            // 기오덴 PI: 새 행성 개척 여부 (가이아포머 반환 제외)
-            const isGeodensNewPlanet = mySeat?.raceCode === 'GEODENS'
-              && myState.stockPlanetaryInstitute === 0
-              && !result.gaiaformerUsed;
-            // 다카니안 PI: 새 섹터 여부 (해당 섹터에 내 건물이 없으면 새 섹터)
-            let isDakaniansNewSector: boolean | undefined;
-            if (mySeat?.raceCode === 'DAKANIANS' && myState.stockPlanetaryInstitute === 0) {
-              const targetSectorId = getSectorIdFromHex(hex);
-              if (targetSectorId) {
-                const sectorHexes = hexes.filter(h => getSectorIdFromHex(h) === targetSectorId);
-                const myBuildings = buildings.filter(b => b.playerId === playerId);
-                const hasMyBuildingInSector = sectorHexes.some(sh =>
-                  myBuildings.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR)
-                );
-                isDakaniansNewSector = !hasMyBuildingInSector || undefined;
-              }
-            }
-            const action: PlaceMineAction = {
-              id: `action-${Date.now()}-${Math.random()}`,
-              type: 'PLACE_MINE',
-              timestamp: Date.now(),
-              payload: {
-                hexQ: hex.hexQ, hexR: hex.hexR, cost,
-                gaiaformerUsed: result.gaiaformerUsed || undefined,
-                vpBonus: result.vpBonus || undefined,
-                isNewPlanet: isGeodensNewPlanet || undefined,
-                isNewSector: isDakaniansNewSector,
-              },
-            };
-            addPendingAction(action);
-            addTentativeBuilding({
-              id: `temp-${Date.now()}`,
-              gameId: roomId,
-              playerId,
-              hexQ: hex.hexQ,
-              hexR: hex.hexR,
-              buildingType: 'MINE',
-            });
-          }
+          return;
         }
+        handleHexClickRules(
+          {
+            hex, roomId, playerId, mySeatNo: mySeatNo!, mySeat: { raceCode: mySeat.raceCode, homePlanetType: mySeat.homePlanetType },
+            gamePhase, isMyTurn, buildingByCoord, buildings, hexes, turnState, playerStates,
+            fleetShipMode, federationMode, fleetProbes, techTileData, lantidsParasiteByCoord, seats, upgradeChoiceHex,
+            tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet, tentativeTechTileCode,
+          },
+          {
+            addPendingAction, addTentativeBuilding, completeFleetShipHexSelection,
+            addFederationBuilding, removeFederationBuilding, addFederationToken, removeFederationToken,
+            addUpgradeAction, setUpgradeChoiceHex, updatePreviewState, axialToPixel,
+          },
+        );
       },
       [isMyTurn, mySeat, playerId, buildingByCoord, buildings, roomId, gamePhase,
        turnState.previewPlayerState, turnState.pendingActions, turnState.tentativeBuildings,
-       playerStates, mySeatNo, addPendingAction, updateLastPendingActionPayload, addTentativeBuilding, addUpgradeAction, fleetProbes,
-       fleetShipMode, clearFleetShipMode, upgradeChoiceHex, federationMode,
+       playerStates, mySeatNo, addPendingAction, completeFleetShipHexSelection, addTentativeBuilding, addUpgradeAction, fleetProbes,
+       fleetShipMode, upgradeChoiceHex, federationMode,
        addFederationBuilding, removeFederationBuilding, addFederationToken, removeFederationToken],
   );
 
@@ -1406,160 +886,47 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
   }
 
   return (
-      <div className="bg-gray-900 rounded-lg p-1 pb-4 relative h-full flex flex-col overflow-hidden">
+      <div className="bg-gray-900 rounded-lg p-1 pb-4 relative h-full flex flex-col overflow-hidden" style={{ containerType: 'inline-size' }}>
         <VpPanel playerStates={playerStates} seatBySeatNo={seatBySeatNo} />
         <RemovedPomerPanel playerStates={playerStates} seatBySeatNo={seatBySeatNo} />
 
         {(() => {
             // 캐릭터 미선택 상태
             if (!mySeatNo && gamePhase === null && seats.some(s => s.playerId === null)) {
-              return <div className="mb-1 p-1 bg-yellow-600 text-black rounded text-center text-sm font-semibold">플레이 하실 캐릭터 순번을 클릭해 주세요.</div>;
+              return <div className="flex justify-center"><div className="w-[60%] rounded text-center font-semibold bg-yellow-600 text-black" style={{ padding: '0.3cqw', fontSize: '2cqw' }}>플레이 하실 캐릭터 순번을 클릭해 주세요.</div></div>;
             }
             if (!isMyTurn) return null;
 
             // 패스 부스터 선택 중 메시지
             if (selectingPassBooster && !turnState.tentativeBooster) {
               return (
-                <div className="mb-1 p-1 bg-amber-600 text-black rounded text-center text-sm font-semibold">
-                  패스 — 다음 라운드 부스터를 선택해 주세요
+                <div className="flex justify-center">
+                  <div className="w-[60%] rounded text-center font-semibold bg-amber-600 text-black" style={{ padding: '0.3cqw', fontSize: '2cqw' }}>
+                    패스 — 다음 라운드 부스터를 선택해 주세요
+                  </div>
                 </div>
               );
             }
             if (selectingPassBooster && turnState.tentativeBooster) {
               return (
-                <div className="mb-1 p-1 bg-amber-600 text-black rounded text-center text-sm font-semibold">
-                  다음 라운드 부스터 선택 완료 — 확정을 눌러주세요
+                <div className="flex justify-center">
+                  <div className="w-[60%] rounded text-center font-semibold bg-amber-600 text-black" style={{ padding: '0.3cqw', fontSize: '2cqw' }}>
+                    다음 라운드 부스터 선택 완료 — 확정을 눌러주세요
+                  </div>
                 </div>
               );
             }
 
             const pending = turnState.pendingActions;
-            const hasPending = pending.length > 0;
-
-            const boosterPending = pending.some(a => a.type === 'BOOSTER_ACTION');
-            const boosterActionType = (pending.find(a => a.type === 'BOOSTER_ACTION') as any)?.payload?.actionType;
-            const powerTerraformPending = pending.some(
-              a => a.type === 'POWER_ACTION' &&
-                (a.payload.powerActionCode === 'PWR_TERRAFORM' || a.payload.powerActionCode === 'PWR_TERRAFORM_2'),
-            );
-            const fleetShipSplitPending = pending.some(
-              a => a.type === 'FLEET_SHIP_ACTION' && !(a.payload as any).isImmediate,
-            );
-            const factionAbilityPending = pending.some(a => a.type === 'FACTION_ABILITY');
-            const hasMineOrFleet = pending.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-            const needsFollowUp = (boosterPending || powerTerraformPending || fleetShipSplitPending || factionAbilityPending) && !hasMineOrFleet;
-
-            const needsFleetHex = fleetShipMode !== null;
-
-            const upgradePending = pending.some(
-              a => a.type === 'UPGRADE_BUILDING' && (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY')
-            );
-            const rebellionTechPending = pending.some(
-              a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode
-            );
             const { tentativeTechTileCode } = useGameStore.getState();
-            const needsTechTile = (upgradePending || rebellionTechPending) && !tentativeTechTileCode;
-
-            let message: string;
-            if (gamePhase !== 'PLAYING') {
-              message = '당신의 차례입니다! 광산을 배치하세요.';
-            } else if (needsFleetHex) {
-              message = '맵에서 대상 위치를 선택하세요.';
-            } else if (needsTechTile) {
-              message = '지식 트랙에서 기술 타일을 선택하세요.';
-            } else if (needsFollowUp) {
-              if (boosterActionType === 'PLACE_GAIAFORMER') {
-                message = '가이아포머 배치할 보라색(TRANSDIM) 행성을 선택하세요.';
-              } else if (fleetShipSplitPending) {
-                const splitAction = pending.find(a => a.type === 'FLEET_SHIP_ACTION' && !(a.payload as any).isImmediate);
-                const td = (splitAction?.payload as any)?.terraformDiscount;
-                const nb = (splitAction?.payload as any)?.navBonus;
-                if (td && td > 0) {
-                  message = `함대 액션 테라포밍 ${td}단계 할인 적용 — 행동을 선택하세요.`;
-                } else if (nb && nb > 0) {
-                  message = `함대 액션 항법 +${nb}거리 적용 — 행동을 선택하세요.`;
-                } else {
-                  message = '함대 액션 적용 — 행동을 선택하세요.';
-                }
-              } else if (boosterPending) {
-                if (boosterActionType === 'TERRAFORM_ONE_STEP') {
-                  message = '부스터 액션 테라포밍 1단계 할인 적용 — 행동을 선택하세요.';
-                } else if (boosterActionType === 'NAVIGATION_PLUS_3') {
-                  message = '부스터 액션 항법 +3거리 적용 — 행동을 선택하세요.';
-                } else {
-                  message = '행동을 선택하세요.';
-                }
-              } else if (powerTerraformPending) {
-                const pwrAction = pending.find(
-                  a => a.type === 'POWER_ACTION' &&
-                    (a.payload.powerActionCode === 'PWR_TERRAFORM' || a.payload.powerActionCode === 'PWR_TERRAFORM_2'),
-                );
-                const discount = pwrAction?.payload.powerActionCode === 'PWR_TERRAFORM_2' ? 2 : 1;
-                message = `파워 액션 테라포밍 ${discount}단계 할인 적용 — 행동을 선택하세요.`;
-              } else if (factionAbilityPending) {
-                const faAction = pending.find(a => a.type === 'FACTION_ABILITY');
-                const abilityCode = (faAction?.payload as any)?.abilityCode;
-                const td = (faAction?.payload as any)?.terraformDiscount;
-                const nb = (faAction?.payload as any)?.navBonus;
-                if (abilityCode === 'IVITS_PLACE_STATION') {
-                  message = '빈 우주 헥스를 선택하여 우주정거장을 배치하세요.';
-                } else if (abilityCode === 'AMBAS_SWAP' && !(faAction?.payload as any)?.hexQ) {
-                  message = '의회와 교환할 광산을 선택하세요.';
-                } else if (abilityCode === 'AMBAS_SWAP') {
-                  message = '광산↔의회 교환 — 확정하세요.';
-                } else if (abilityCode === 'FIRAKS_DOWNGRADE' && !(faAction?.payload as any)?.hexQ) {
-                  message = '다운그레이드할 연구소를 선택하세요.';
-                } else if (abilityCode === 'FIRAKS_DOWNGRADE' && !(faAction?.payload as any)?.trackCode) {
-                  message = '전진할 지식 트랙을 선택하세요.';
-                } else if (abilityCode === 'BESCODS_ADVANCE_LOWEST_TRACK' && !(faAction?.payload as any)?.trackCode) {
-                  message = '전진할 최저 지식 트랙을 선택하세요.';
-                } else if (abilityCode === 'MOWEIDS_RING' && !(faAction?.payload as any)?.hexQ) {
-                  message = '링을 씌울 건물을 선택하세요.';
-                } else if (abilityCode === 'MOWEIDS_RING') {
-                  message = '건물에 링 씌우기 — 확정하세요.';
-                } else if (td && td > 0) {
-                  message = `종족 능력 테라포밍 ${td}단계 할인 적용 — 행동을 선택하세요.`;
-                } else if (nb && nb > 0) {
-                  message = `종족 능력 항법 +${nb}거리 적용 — 행동을 선택하세요.`;
-                } else {
-                  message = '종족 능력 적용 — 행동을 선택하세요.';
-                }
-              } else {
-                message = '행동을 선택하세요.';
-              }
-            } else if (pending.some(a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT')) {
-              message = '인공물 타일을 획득합니다. 확정을 눌러주세요. (파워 6 소각)';
-            } else if (pending.some(a => a.type === 'POWER_ACTION')) {
-              const pwrAct = pending.find(a => a.type === 'POWER_ACTION');
-              message = `${pwrAct?.payload.description ?? '파워 액션'} — 확정을 눌러주세요.`;
-            } else if (pending.some(a => a.type === 'PLACE_MINE')) {
-              message = '광산 건설 — 확정을 눌러주세요.';
-            } else if (pending.some(a => a.type === 'UPGRADE_BUILDING')) {
-              const upAct = pending.find(a => a.type === 'UPGRADE_BUILDING');
-              message = `건물 업그레이드 (${upAct?.payload.toType}) — 확정을 눌러주세요.`;
-            } else if (pending.some(a => a.type === 'ADVANCE_TECH')) {
-              message = '기술 트랙 전진 — 확정을 눌러주세요.';
-            } else if (pending.some(a => a.type === 'FLEET_PROBE')) {
-              message = '함대 입장 — 확정을 눌러주세요.';
-            } else if (pending.some(a => a.type === 'FLEET_SHIP_ACTION')) {
-              const fsa = pending.find(a => a.type === 'FLEET_SHIP_ACTION');
-              message = `함대 액션 (${(fsa?.payload as any)?.actionCode}) — 확정을 눌러주세요.`;
-            } else if (pending.some(a => a.type === 'DEPLOY_GAIAFORMER')) {
-              message = '가이아포머 배치 — 확정을 눌러주세요.';
-            } else if (pending.some(a => a.type === 'TECH_TILE_ACTION')) {
-              message = '기술 타일 액션 — 확정을 눌러주세요.';
-            } else if (pending.some(a => a.type === 'FORM_FEDERATION')) {
-              message = '연방 형성 — 확정을 눌러주세요.';
-            } else if (pending.length > 0) {
-              message = '액션 선택 완료 — 확정을 눌러주세요.';
-            } else {
-              message = '당신의 차례입니다! 행동을 선택하세요.';
-            }
-
-            const hasAction = pending.length > 0 || needsFleetHex;
+            const bannerAnalysis = analyzePending(pending, fleetShipMode, tentativeTechTileCode, gamePhase);
+            const message = bannerAnalysis.bannerMessage;
+            const hasAction = bannerAnalysis.hasPending || bannerAnalysis.needsFleetHex;
             return (
-              <div className={`mb-1 p-1 rounded text-center text-sm font-semibold ${hasAction ? 'bg-emerald-600 text-white' : 'bg-yellow-600 text-black'}`}>
-                {message}
+              <div className="flex justify-center">
+                <div className={`w-[60%] rounded text-center font-semibold ${hasAction ? 'bg-emerald-600 text-white' : 'bg-yellow-600 text-black'}`} style={{ padding: '0.3cqw', fontSize: '2cqw' }}>
+                  {message}
+                </div>
               </div>
             );
         })()}
@@ -1579,7 +946,7 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
             );
             return hexes.map((hex) => {
             const building = buildingByCoord.get(`${hex.hexQ},${hex.hexR}`);
-            const clickable = isHexClickable(hex);
+            const clickable = isHexClickableLocal(hex);
             const isTentative = building ? turnState.tentativeBuildings.some(
               tb => tb.hexQ === building.hexQ && tb.hexR === building.hexR
             ) : false;
@@ -1707,8 +1074,8 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
             if (upgradeChoiceHex.fromType === 'TRADING_STATION') {
               const costRL = calcUpgradeCost(upgradeChoiceHex.fromType, 'RESEARCH_LAB', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
               const costPI = calcUpgradeCost(upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
-              const canRL = !myState || ResourceCalculator.canAfford(myState, costRL);
-              const canPI = !myState || ResourceCalculator.canAfford(myState, costPI);
+              const canRL = (!myState || ResourceCalculator.canAfford(myState, costRL)) && (myState?.stockResearchLab ?? 1) > 0;
+              const canPI = (!myState || ResourceCalculator.canAfford(myState, costPI)) && (myState?.stockPlanetaryInstitute ?? 1) > 0;
               const leechResLab = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'RESEARCH_LAB', allBuildings, playerStates, playerId, techTileData);
               const leechPI = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'PLANETARY_INSTITUTE', allBuildings, playerStates, playerId, techTileData);
               const panelH = 130;
@@ -1741,7 +1108,14 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
             // RESEARCH_LAB → ACADEMY_KNOWLEDGE / ACADEMY_QIC
             if (upgradeChoiceHex.fromType === 'RESEARCH_LAB') {
               const costAcademy = calcUpgradeCost(upgradeChoiceHex.fromType, 'ACADEMY', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
-              const canAcademy = !myState || ResourceCalculator.canAfford(myState, costAcademy);
+              const canAffordAcademy = !myState || ResourceCalculator.canAfford(myState, costAcademy);
+              const hasStock = (myState?.stockAcademy ?? 1) > 0;
+              // 이미 지은 아카데미 종류 확인 (같은 종류 2번 불가)
+              const myAcademies = allBuildings.filter(b => b.playerId === playerId && b.buildingType === 'ACADEMY');
+              const hasKnowledgeAcademy = myAcademies.some(b => (b as any).academyType === 'KNOWLEDGE');
+              const hasQicAcademy = myAcademies.some(b => (b as any).academyType === 'QIC');
+              const canKnowledge = canAffordAcademy && hasStock && !hasKnowledgeAcademy;
+              const canQic = canAffordAcademy && hasStock && !hasQicAcademy;
               const leechAcademy = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'ACADEMY', allBuildings, playerStates, playerId, techTileData);
               const panelH = 140;
               const py = upgradeChoiceHex.py - panelH / 2;
@@ -1752,18 +1126,18 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
                     className="flex flex-col rounded-lg overflow-hidden border-2 border-yellow-500 shadow-xl">
                     <div className="bg-yellow-600 text-black text-[10px] font-bold text-center py-1 px-1">학원 선택 (6c · 6o)</div>
                     {leechAcademy.length > 0 && <div className="text-yellow-300 text-[8px] text-center px-1">{leechText(leechAcademy)}</div>}
-                    <button onClick={() => canAcademy && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_KNOWLEDGE')}
-                      disabled={!canAcademy}
-                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canAcademy ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                    <button onClick={() => canKnowledge && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_KNOWLEDGE')}
+                      disabled={!canKnowledge}
+                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canKnowledge ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
                       <img src={knowledgePng} alt="지식" className="w-5 h-5" />
                       <div className="flex flex-col items-start">
                         <span className="text-white text-[10px] font-bold">지식 학원</span>
                         <span className="text-green-200 text-[9px]">{isItars ? '3' : '2'}지식 수입</span>
                       </div>
                     </button>
-                    <button onClick={() => canAcademy && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_QIC')}
-                      disabled={!canAcademy}
-                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canAcademy ? 'bg-indigo-800 hover:bg-indigo-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                    <button onClick={() => canQic && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_QIC')}
+                      disabled={!canQic}
+                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canQic ? 'bg-indigo-800 hover:bg-indigo-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
                       <img src={qicPng} alt="QIC" className="w-5 h-5" />
                       <div className="flex flex-col items-start">
                         <span className="text-white text-[10px] font-bold">QIC 학원</span>
@@ -1786,7 +1160,7 @@ const hasOtherPending = pending.length > 0 && !hasPendingTerraform && !hasPendin
             ? (turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo))
             : undefined;
           return (
-            <div style={{ position: 'absolute', bottom: 0, right: 0, width: '9%', minWidth: 60 }}>
+            <div style={{ position: 'absolute', top: '1cqw', left: '1cqw', width: '7%' }}>
               <FreePowerImage
                 ore={myPS?.ore ?? 0}
                 qic={myPS?.qic ?? 0}

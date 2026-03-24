@@ -62,14 +62,6 @@ interface FleetLayout {
 }
 
 // 기술 트랙 목록 (ECLIPSE_TECH 트랙 선택용)
-const TECH_TRACKS = [
-  { code: 'TERRA_FORMING', label: '테라포밍' },
-  { code: 'NAVIGATION',    label: '항법' },
-  { code: 'AI',            label: 'AI' },
-  { code: 'GAIA_FORMING',  label: '가이아포밍' },
-  { code: 'ECONOMY',       label: '경제' },
-  { code: 'SCIENCE',       label: '과학' },
-];
 
 // 함대 버튼 코드 → FleetShipAction 메타 매핑
 const FLEET_ACTION_FSA_META: Record<string, {
@@ -266,7 +258,6 @@ const DEFAULT_SPACESHIPS: Spaceship[] = [
 // ========== 메인 컴포넌트 ==========
 export default function FederationTiles({ roomId, playerStates = [], refreshKey = 0 }: FederationTilesProps) {
   const [spaceships, setSpaceships] = useState<Spaceship[]>(DEFAULT_SPACESHIPS);
-  const [trackPickingFor, setTrackPickingFor] = useState<string | null>(null);
   const {
     fleetProbes, turnState, playerId: myPlayerId, setFleetProbes,
     usedPowerActionCodes, gamePhase, currentTurnSeatNo, mySeatNo, addPendingAction,
@@ -350,7 +341,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
             let techTile: TechTileInfo | null = null;
             if (layout.techTilePosition) {
               const rawTile = basicTiles.find((t) => t.position === layout.techTilePosition) || null;
-              techTile = rawTile && !rawTile.isTaken ? rawTile : null;
+              techTile = rawTile ?? null;  // 함대 기술 타일은 4명 모두 가져갈 수 있음
             }
 
             // 연방 토큰 매칭 (position이 ship.id와 같거나, 배열 순서대로)
@@ -432,7 +423,14 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     if (!meta) return; // 정의되지 않은 액션 무시
 
     if (meta.needsTrack) {
-      setTrackPickingFor(config.code);
+      // trackCode 없이 pending 추가 → TechTracks에서 트랙 선택
+      const action: FleetShipAction = {
+        id: `fsa-${Date.now()}-${Math.random()}`,
+        type: 'FLEET_SHIP_ACTION',
+        timestamp: Date.now(),
+        payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true },
+      };
+      addPendingAction(action);
       return;
     }
 
@@ -471,6 +469,14 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     }
 
     if (meta.needsGaiaformHex || meta.needsAsteroidHex || meta.needsUpgradeMineToTs || meta.needsTsToRl) {
+      // pending action 먼저 추가 → 자원 감소 프리뷰 즉시 표시
+      const hexAction: FleetShipAction = {
+        id: `fsa-${Date.now()}-${Math.random()}`,
+        type: 'FLEET_SHIP_ACTION',
+        timestamp: Date.now(),
+        payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true },
+      };
+      addPendingAction(hexAction);
       setFleetShipMode({
         actionCode: meta.fshCode,
         fleetName: meta.fleetName,
@@ -500,20 +506,6 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     addPendingAction(action);
   };
 
-  const handleTrackSelect = (actionCode: string, trackCode: string) => {
-    const meta = FLEET_ACTION_FSA_META[actionCode];
-    // 비용은 레이아웃에서 가져옴
-    const config = Object.values(FLEET_LAYOUTS).flatMap(l => l.actions).find(a => a.code === actionCode);
-    if (!meta || !config) return;
-    const action: FleetShipAction = {
-      id: `fsa-${Date.now()}-${Math.random()}`,
-      type: 'FLEET_SHIP_ACTION',
-      timestamp: Date.now(),
-      payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true, trackCode },
-    };
-    addPendingAction(action);
-    setTrackPickingFor(null);
-  };
 
   // 우주선 연방 토큰 클릭 → pendingAction에 추가 (확정 버튼으로 처리)
   const handleSelectFedTile = (tileCode: string) => {
@@ -587,42 +579,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
         })}
       </div>
 
-      {/* 헥스 선택 모드 안내 */}
-      {inFleetShipMode && (
-        <div className="mt-1.5 p-1.5 bg-amber-900/50 border border-amber-600/30 rounded-lg text-[9px] text-amber-200">
-          맵에서 대상 위치를 선택하세요 ({fleetShipMode!.actionCode})
-          <button
-            onClick={() => setFleetShipMode(null)}
-            className="ml-2 text-gray-400 hover:text-white underline"
-          >
-            취소
-          </button>
-        </div>
-      )}
 
-      {/* 기술 트랙 선택 (ECLIPSE_TECH) */}
-      {trackPickingFor && (
-        <div className="mt-1.5 p-1.5 bg-blue-900/50 border border-blue-600/30 rounded-lg text-[9px]">
-          <div className="text-blue-300 font-semibold mb-1">기술 트랙 선택:</div>
-          <div className="flex flex-wrap gap-1">
-            {TECH_TRACKS.map(t => (
-              <button
-                key={t.code}
-                onClick={() => handleTrackSelect(trackPickingFor, t.code)}
-                className="px-1.5 py-0.5 bg-blue-700/70 hover:bg-blue-600/70 text-white rounded-md cursor-pointer"
-              >
-                {t.label}
-              </button>
-            ))}
-            <button
-              onClick={() => setTrackPickingFor(null)}
-              className="px-1.5 py-0.5 bg-gray-600/60 hover:bg-gray-500/60 text-white rounded-md cursor-pointer"
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      )}
 
     </div>
   );

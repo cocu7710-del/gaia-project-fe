@@ -95,7 +95,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
       <div className="flex justify-center w-[95%] mx-auto">
         <svg
           width="100%"
-          height="auto"
+          height={svgHeight}
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="overflow-visible"
           style={{ maxHeight: '156px' }}

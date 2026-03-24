@@ -79,6 +79,13 @@ export const roomApi = {
       terraformDiscount,
     }),
 
+  placeLostPlanet: (roomId: string, playerId: string, hexQ: number, hexR: number) =>
+    apiClient.post<PlaceMinePlayResponse>(`/api/rooms/${roomId}/actions/lost-planet`, {
+      playerId,
+      hexQ,
+      hexR,
+    }),
+
   // 가이아 포머 배치 (차원변형 행성)
   deployGaiaformer: (roomId: string, playerId: string, hexQ: number, hexR: number, qicUsed = 0, isInstant = false) =>
     apiClient.post<{ success: boolean; message: string; hexQ: number; hexR: number; nextTurnSeatNo: number }>(
@@ -523,6 +530,7 @@ interface TechTileInfo {
   isTaken: boolean;
   takenByPlayerId: string | null;
   isActionUsed: boolean;
+  ownerPlayerIds: string[];
 }
 
 interface AdvancedTechTileInfo {

@@ -194,7 +194,7 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
     // 아이타 기술타일 선택 모드: 임시 선택 (확정은 ItarsGaiaChoiceDialog에서)
     if (isItarsTilePicking) {
       if (tile.tileCode.startsWith('ADV_')) return; // 기본 타일만
-      const isMineOwned = tile.takenByPlayerId === myPlayerId;
+      const isMineOwned = tile.takenByPlayerId === myPlayerId || ((tile as any).ownerPlayerIds ?? []).includes(myPlayerId);
       if (isMineOwned) return;
       if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
         setPickingTrackFor(tile.tileCode);
@@ -205,7 +205,7 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
     }
     // 기본 타일: 본인 보유만 차단, 고급 타일: 누구든 가져가면 차단
     const isAdv = tile.tileCode.startsWith('ADV_');
-    const isMineOwned = tile.takenByPlayerId === myPlayerId;
+    const isMineOwned = tile.takenByPlayerId === myPlayerId || ((tile as any).ownerPlayerIds ?? []).includes(myPlayerId);
     if (!hasPendingTechPickBase || (isAdv && tile.isTaken) || isMineOwned || tentativeTechTileCode) return;
     if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
       setPickingTrackFor(tile.tileCode);
@@ -307,6 +307,36 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
     if (pickingTrackFor) {
       setTentativeTechTile(pickingTrackFor, trackCode);
       setPickingTrackFor(null);
+      // 거리 트랙 4→5 도달 시 검은행성 배치 pending 자동 추가
+      if (trackCode === 'NAVIGATION' && myPlayerState) {
+        const navLevel = myPlayerState.techNavigation ?? 0;
+        if (navLevel === 4) {
+          addPendingAction({
+            id: `lp-${Date.now()}`,
+            type: 'PLACE_LOST_PLANET',
+            timestamp: Date.now(),
+            payload: {},
+          });
+        }
+      }
+      return;
+    }
+    // ECLIPSE_TECH: 트랙 선택 (trackCode 미설정 상태)
+    const eclipseTechPending = turnState.pendingActions.find(
+      a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'ECLIPSE_TECH' && !(a.payload as any).trackCode
+    );
+    if (eclipseTechPending) {
+      (eclipseTechPending.payload as any).trackCode = trackCode;
+      setTentativeTechTile('__ECLIPSE_TECH__', trackCode);
+      // 거리 트랙 4→5 도달 시 검은행성 배치 pending 자동 추가
+      if (trackCode === 'NAVIGATION' && myPlayerState && (myPlayerState.techNavigation ?? 0) === 4) {
+        addPendingAction({
+          id: `lp-${Date.now()}`,
+          type: 'PLACE_LOST_PLANET',
+          timestamp: Date.now(),
+          payload: {},
+        });
+      }
       return;
     }
     if (!isMyTurn || !isPlayingPhase || hasPendingAction) return;
@@ -322,6 +352,17 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
       payload: { trackCode, cost: { knowledge: 4 } },
     };
     addPendingAction(action);
+
+    // 거리 트랙 4→5 도달 시 검은행성 배치 pending 자동 추가
+    const currentLevel = (myPlayerState[field] as number) ?? 0;
+    if (trackCode === 'NAVIGATION' && currentLevel === 4) {
+      addPendingAction({
+        id: `lp-${Date.now()}`,
+        type: 'PLACE_LOST_PLANET',
+        timestamp: Date.now(),
+        payload: {},
+      });
+    }
     updatePreviewState();
   };
 
@@ -381,7 +422,10 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
           const myLevel = field && myPlayerState ? (myPlayerState[field] as number) : -1;
           const canAdvance = !hasPendingTechPick && !pickingTrackFor && isMyTurn && isPlayingPhase && !hasPendingAction
             && myPlayerState != null && myPlayerState.knowledge >= 4;
-          const isPickingTrack = !!pickingTrackFor || !!firaksPendingTrack || !!bescodsPending;
+          const eclipseTechPending = turnState.pendingActions.find(
+            a => a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'ECLIPSE_TECH' && !(a.payload as any).trackCode
+          );
+          const isPickingTrack = !!pickingTrackFor || !!firaksPendingTrack || !!bescodsPending || !!eclipseTechPending;
           return (
             <TrackColumn
               key={track.trackCode}
@@ -415,30 +459,21 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
                 const imgSrc = TECH_TILE_IMAGE_MAP[code];
                 const takenColor = getPlayerColorById(tile.takenByPlayerId);
                 const isSelected = pickingTrackFor === tile.tileCode;
-                const isMineOwned = tile.takenByPlayerId === myPlayerId;
+                const isMineOwned = tile.takenByPlayerId === myPlayerId || ((tile as any).ownerPlayerIds ?? []).includes(myPlayerId);
                 const canClick = hasPendingTechPick && !tentativeTechTileCode && !pickingTrackFor && !isMineOwned;
                 return (
                   <div
                     key={tile.tileCode}
                     onClick={canClick ? () => handleTileClick(tile) : undefined}
                     className={`flex-1 bg-gray-700 border rounded px-0.5 py-0.5 text-center relative ${
-                      tile.isTaken ? 'opacity-40' : ''
-                    } ${
                       isSelected
                         ? 'border-green-400 ring-2 ring-green-400 bg-green-900/30'
                         : canClick
                           ? 'border-green-400 cursor-pointer hover:bg-gray-600 ring-1 ring-green-400'
                           : 'border-gray-600'
                     }`}
-                    style={tile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
                     title={tile.description}
                   >
-                    {takenColor && (
-                      <div
-                        className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full border border-white/80"
-                        style={{ backgroundColor: takenColor }}
-                      />
-                    )}
                     {imgSrc ? (
                       <img src={imgSrc} alt={code} className="mx-auto max-h-[36px] w-auto max-w-full object-contain" draggable={false} />
                     ) : (
@@ -637,7 +672,7 @@ function TrackColumn({
         const imgSrc = TECH_TILE_IMAGE_MAP[code];
         const takenColor = getPlayerColorById?.(basicTile.takenByPlayerId) ?? null;
         const myPid = useGameStore.getState().playerId;
-        const isMineOwned = basicTile.takenByPlayerId === myPid;
+        const isMineOwned = basicTile.takenByPlayerId === myPid || ((basicTile as any).ownerPlayerIds ?? []).includes(myPid);
         const canClick = isTileClickable && !isMineOwned;
 
         return (
@@ -646,15 +681,8 @@ function TrackColumn({
                 className={`${bgColor} rounded-b px-0.5 py-1 text-center relative ${
                     canClick ? 'cursor-pointer ring-2 ring-green-400 hover:brightness-125' : ''
                 }`}
-                style={basicTile.isTaken && takenColor ? { outline: `2px solid ${takenColor}`, outlineOffset: '-2px' } : undefined}
                 title={canClick ? '클릭하여 선택' : basicTile.description}
             >
-              {takenColor && (
-                <div
-                  className="absolute left-0.5 top-0.5 w-2 h-2 rounded-full border border-white/80"
-                  style={{ backgroundColor: takenColor }}
-                />
-              )}
               {imgSrc ? (
                   <img src={imgSrc} alt={code} className="mx-auto max-h-[36px] w-auto max-w-full object-contain" draggable={false} />
               ) : (

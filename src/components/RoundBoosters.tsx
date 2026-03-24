@@ -4,19 +4,7 @@ import { useGameStore } from '../store/gameStore';
 import type { SelectBoosterAction } from '../types/turnActions';
 import { PLANET_COLORS } from '../constants/colors';
 
-// 부스터별 액션 타입 (액션 있는 부스터만)
-const BOOSTER_ACTION_TYPE: Record<string, string> = {
-  BOOSTER_12: 'PLACE_GAIAFORMER',
-  BOOSTER_13: 'NAVIGATION_PLUS_3',
-  BOOSTER_14: 'TERRAFORM_ONE_STEP',
-};
-
-// 부스터 액션 타입별 한글 이름
-const BOOSTER_ACTION_LABEL: Record<string, string> = {
-  TERRAFORM_ONE_STEP: '테라포밍 1삽',
-  PLACE_GAIAFORMER: '포머 배치',
-  NAVIGATION_PLUS_3: '항해+3',
-};
+import { BOOSTER_ACTION_DEFS } from '../actions/actionRegistry';
 
 interface RoundBoostersProps {
   boosters: BoosterOfferResponse[];
@@ -114,13 +102,16 @@ export default function RoundBoosters({
 
             // 내 부스터 액션 버튼 표시 여부
             const isMyBooster = booster.pickedBySeatNo === mySeatNo;
-            const actionType = BOOSTER_ACTION_TYPE[booster.boosterCode];
+            const boosterDef = BOOSTER_ACTION_DEFS[booster.boosterCode];
+            const actionType = boosterDef?.actionType;
             const hasAction = !!actionType;
             const isPlaying = gamePhase === 'PLAYING';
             // 해당 부스터 소유 플레이어의 액션 사용 여부 (전체 playerStates에서 조회)
             const ownerState = playerStates.find(p => p.seatNo === booster.pickedBySeatNo);
             const ownerActionUsed = ownerState?.boosterActionUsed ?? false;
-            const canUseAction = isMyBooster && hasAction && isPlaying && isMyTurn && !ownerActionUsed && !selectingPassBooster && turnState.pendingActions.length === 0;
+            // 포머 배치 액션: 가이아포머 재고 필요
+            const noGaiaformer = boosterDef?.requiresGaiaformer && (ownerState?.stockGaiaformer ?? 0) <= 0;
+            const canUseAction = isMyBooster && hasAction && isPlaying && isMyTurn && !ownerActionUsed && !selectingPassBooster && turnState.pendingActions.length === 0 && !noGaiaformer;
 
             return (
               <div
@@ -175,6 +166,12 @@ export default function RoundBoosters({
                       style={{ backgroundColor: getSeatColor(booster.pickedBySeatNo) || '#666' }}
                       title={`${booster.pickedBySeatNo}번 좌석`}
                     />
+                  ) : isTentativelySelected && mySeatNo ? (
+                    <div
+                      className="w-4 h-4 rounded-full border-2 border-yellow-400 border-dashed opacity-70"
+                      style={{ backgroundColor: getSeatColor(mySeatNo) || '#666' }}
+                      title="선택 예정"
+                    />
                   ) : (
                     <div className="w-4 h-4 rounded-full border border-gray-600 bg-gray-700" />
                   )}
@@ -192,9 +189,9 @@ export default function RoundBoosters({
                           ? 'bg-orange-600 hover:bg-orange-500 text-white cursor-pointer'
                           : 'bg-gray-600 text-gray-400 cursor-not-allowed'
                     }`}
-                    title={ownerActionUsed ? '이미 사용함' : BOOSTER_ACTION_LABEL[actionType] || actionType}
+                    title={ownerActionUsed ? '이미 사용함' : boosterDef?.label || actionType}
                   >
-                    {ownerActionUsed ? '사용됨' : BOOSTER_ACTION_LABEL[actionType] || actionType}
+                    {ownerActionUsed ? '사용됨' : boosterDef?.label || actionType}
                   </button>
                 )}
               </div>

@@ -11,7 +11,8 @@ export type GameActionType =
   | 'FLEET_SHIP_ACTION'
   | 'TECH_TILE_ACTION'
   | 'FACTION_ABILITY'
-  | 'FORM_FEDERATION';
+  | 'FORM_FEDERATION'
+  | 'PLACE_LOST_PLANET';
 
 export interface ResourceCost {
   credit?: number;

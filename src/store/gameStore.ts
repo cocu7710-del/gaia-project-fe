@@ -4,13 +4,15 @@ import type { TurnState } from '../types/turnState';
 import type { GameAction, ResourceCost } from '../types/turnActions';
 import { ResourceCalculator } from '../utils/resourceCalculator';
 
-/** 글린 QIC 획득: 아카데미 건설 전 → 버림, 아카데미 건설 후 → 광석 변환 */
+/** 글린 QIC 획득: QIC아카데미 건설 전 → 광석 변환, 건설 후 → 정상 QIC 획득 */
 function addQicPreview(ps: PlayerStateResponse, amount: number): PlayerStateResponse {
   if (ps.factionCode === 'GLEENS') {
-    if (ps.stockAcademy < 2) {
-      return { ...ps, ore: Math.min(15, ps.ore + amount) };
+    // hasQicAcademy가 true면 QIC아카데미 건설 완료 → 정상 QIC 획득
+    if ((ps as any).hasQicAcademy) {
+      return { ...ps, qic: ps.qic + amount };
     }
-    return ps; // 아카데미 건설 전: 버림
+    // 건설 전: QIC 대신 광석으로 변환
+    return { ...ps, ore: Math.min(15, ps.ore + amount) };
   }
   return { ...ps, qic: ps.qic + amount };
 }
@@ -116,7 +118,7 @@ function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerSta
     case 'HADSCH_HALLAS_4C_KNOWLEDGE': return { ...preview, credit: preview.credit - 4, knowledge: preview.knowledge + 1 };
     case 'HADSCH_HALLAS_4C_QIC': return addQicPreview({ ...preview, credit: preview.credit - 4 }, 1);
     case 'NEVLAS_4P_ORE_CREDIT': return { ...preview, powerBowl3: preview.powerBowl3 - 2, powerBowl1: preview.powerBowl1 + 2, ore: preview.ore + 1, credit: preview.credit + 1 };
-    case 'NEVLAS_4P_ORE2': return { ...preview, powerBowl3: preview.powerBowl3 - 2, powerBowl1: preview.powerBowl1 + 2, ore: preview.ore + 2 };
+    case 'NEVLAS_6P_ORE2': return { ...preview, powerBowl3: preview.powerBowl3 - 3, powerBowl1: preview.powerBowl1 + 3, ore: preview.ore + 2 };
     case 'NEVLAS_POWER3_TO_GAIA_KNOWLEDGE': return { ...preview, powerBowl3: preview.powerBowl3 - 1, gaiaPower: (preview.gaiaPower || 0) + 1, knowledge: preview.knowledge + 1 };
     default: return preview;
   }
@@ -257,6 +259,10 @@ function calculatePreviewState(
       if (preview.factionCode === 'DAKANIANS' && preview.stockPlanetaryInstitute === 0 && act.payload.isNewSector) {
         preview = { ...preview, credit: preview.credit + 2, knowledge: preview.knowledge + 1 };
       }
+    }
+    if (act.type === 'PLACE_LOST_PLANET') {
+      // 검은행성: 광산 재고 감소 없음, VP +6
+      preview = { ...preview, victoryPoints: preview.victoryPoints + 6 };
     }
     if (act.type === 'UPGRADE_BUILDING') {
       // 재고 변경 프리뷰
@@ -484,6 +490,7 @@ interface GameState {
   initializeTurn: (playerState: PlayerStateResponse) => void;
   addPendingAction: (action: GameAction) => void;
   updateLastPendingActionPayload: (patch: Record<string, unknown>) => void;
+  completeFleetShipHexSelection: (patch: Record<string, unknown>, tentativeBuilding: GameBuilding) => void;
   clearPendingActions: (keepPreview?: boolean) => void;
   addTentativeBuilding: (building: GameBuilding) => void;
   setTentativeBooster: (boosterCode: string | null) => void;
@@ -683,6 +690,24 @@ export const useGameStore = create<GameState>((set) => ({
         turnState: {
           ...state.turnState,
           pendingActions: actions,
+          previewPlayerState: calculatePreviewState(state.turnState.originalPlayerState, actions, state.turnState.burnPowerCount, state.turnState.freeConvertActions),
+        },
+      };
+    }),
+
+  completeFleetShipHexSelection: (patch: Record<string, unknown>, tentativeBuilding: GameBuilding) =>
+    set((state) => {
+      const actions = [...state.turnState.pendingActions];
+      if (actions.length > 0) {
+        const last = actions[actions.length - 1];
+        actions[actions.length - 1] = { ...last, payload: { ...last.payload, ...patch } };
+      }
+      return {
+        fleetShipMode: null,
+        turnState: {
+          ...state.turnState,
+          pendingActions: actions,
+          tentativeBuildings: [...state.turnState.tentativeBuildings, tentativeBuilding],
           previewPlayerState: calculatePreviewState(state.turnState.originalPlayerState, actions, state.turnState.burnPowerCount, state.turnState.freeConvertActions),
         },
       };

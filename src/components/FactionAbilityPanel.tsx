@@ -220,7 +220,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
         buttons.push(
           <div key="nevlas-convert" className="flex gap-1">
             {freeBtn('4p→1o+1c', 'NEVLAS_4P_ORE_CREDIT', bowl3 < 2, '3구역 파워 2개(=4파워) → 1광석+1크레딧')}
-            {freeBtn('4p→2o', 'NEVLAS_4P_ORE2', bowl3 < 2, '3구역 파워 2개(=4파워) → 2광석')}
+            {freeBtn('6p→2o', 'NEVLAS_6P_ORE2', bowl3 < 3, '3구역 파워 3개(=6파워) → 2광석')}
           </div>
         );
       }
