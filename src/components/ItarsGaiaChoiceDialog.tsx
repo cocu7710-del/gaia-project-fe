@@ -31,12 +31,14 @@ export const ItarsGaiaChoiceDialog: React.FC<Props> = ({ roomId, myPlayerId }) =
   // 기술 타일 선택 모드
   if (itarsGaiaChoice.tilePicking) {
     const hasSelection = tentativeTechTileCode && tentativeTechTrackCode;
+    const needsTrack = tentativeTechTileCode && !tentativeTechTrackCode;
 
     const handleConfirm = async () => {
       if (!hasSelection) return;
       setLoading(true);
       try {
-        await roomApi.itarsGaiaChoice(roomId, myPlayerId, 'TAKE_TILE', tentativeTechTileCode!, tentativeTechTrackCode!);
+        const coverTile = useGameStore.getState().tentativeCoverTileCode ?? undefined;
+        await roomApi.itarsGaiaChoice(roomId, myPlayerId, 'TAKE_TILE', tentativeTechTileCode!, tentativeTechTrackCode!, coverTile);
         setTentativeTechTile(null, null);
         // WS 이벤트로 상태 갱신됨
       } catch (e: any) {
@@ -55,7 +57,7 @@ export const ItarsGaiaChoiceDialog: React.FC<Props> = ({ roomId, myPlayerId }) =
       <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-orange-900/90 backdrop-blur-sm border border-orange-500/40 text-orange-200 px-6 py-2.5 rounded-xl z-40 text-sm shadow-lg flex items-center gap-3">
         {hasSelection ? (
           <>
-            <span>선택: {tentativeTechTileCode!.replace('BASIC_', '')} ({tentativeTechTrackCode})</span>
+            <span>선택: {tentativeTechTileCode!.replace('BASIC_', '').replace('ADV_', '고급 ')} ({tentativeTechTrackCode})</span>
             <button
               onClick={handleConfirm}
               disabled={loading}
@@ -71,9 +73,20 @@ export const ItarsGaiaChoiceDialog: React.FC<Props> = ({ roomId, myPlayerId }) =
               다시 선택
             </button>
           </>
+        ) : needsTrack ? (
+          <>
+            <span>선택: {tentativeTechTileCode!.replace('BASIC_', '')} → 트랙을 클릭하세요</span>
+            <button
+              onClick={() => setTentativeTechTile(null, null)}
+              disabled={loading}
+              className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-xs cursor-pointer"
+            >
+              다시 선택
+            </button>
+          </>
         ) : (
           <>
-            <span>기술 트랙에서 기본 타일을 선택하세요 (가이아 4 소모)</span>
+            <span>기술 트랙에서 타일을 선택하세요 (가이아 4 소모)</span>
           </>
         )}
         <button

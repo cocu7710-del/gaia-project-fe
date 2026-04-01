@@ -9,25 +9,27 @@ interface Props {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  BOOSTER_PASS: '부스터 패스',
+  BASE: '기본',
   ROUND_SCORING: '라운드 미션',
-  FINAL_SCORING: '최종 미션',
-  KNOWLEDGE_TRACK: '지식트랙',
-  REMAINING_RESOURCES: '남은 자원',
-  FEDERATION_TOKEN: '연방 토큰',
-  ARTIFACT: '인공물',
+  BOOSTER_PASS: '부스터 패스',
   TECH_TILE: '기술타일',
   ADV_TECH_TILE: '고급 기술타일',
-  BIDDING: '비딩',
-  FLEET: '함대',
+  FEDERATION_TOKEN: '연방 토큰',
+  FLEET: '함대 액션',
+  ARTIFACT: '인공물',
+  KNOWLEDGE_TRACK: '지식트랙',
+  FINAL_SCORING: '최종 미션',
+  REMAINING_RESOURCES: '남은 자원',
   LEECH_COST: '파워 리치',
+  FLEET_ENTRY: '우주선 입장',
+  BIDDING: '비딩',
   OTHER: '기타',
 };
 
 const CATEGORY_ORDER = [
-  'ROUND_SCORING', 'BOOSTER_PASS', 'FINAL_SCORING', 'KNOWLEDGE_TRACK',
-  'REMAINING_RESOURCES', 'FEDERATION_TOKEN', 'ARTIFACT',
-  'TECH_TILE', 'ADV_TECH_TILE', 'FLEET', 'BIDDING', 'LEECH_COST', 'OTHER',
+  'BASE', 'ROUND_SCORING', 'BOOSTER_PASS', 'TECH_TILE', 'ADV_TECH_TILE',
+  'FEDERATION_TOKEN', 'FLEET', 'ARTIFACT', 'KNOWLEDGE_TRACK',
+  'FINAL_SCORING', 'REMAINING_RESOURCES', 'LEECH_COST', 'FLEET_ENTRY', 'BIDDING', 'OTHER',
 ];
 
 const FACTION_PLANET: Record<string, string> = {
@@ -87,6 +89,72 @@ export default function GameResultPanel({ roomId, onClose }: Props) {
           </thead>
           <tbody>
             {CATEGORY_ORDER.map(cat => {
+              // 함대 액션: 함대별 분리 표시
+              if (cat === 'FLEET') {
+                const totalHasAny = sorted.some(p => (p.categoryScores[cat] ?? 0) !== 0);
+                if (!totalHasAny) return null;
+                const rows = [];
+                rows.push(
+                  <tr key={cat} className="border-b border-gray-800 hover:bg-gray-800/50 bg-gray-800/30">
+                    <td className="text-gray-200 px-2 py-1 sticky left-0 bg-gray-900 z-10 whitespace-nowrap font-bold">{CATEGORY_LABELS[cat]}</td>
+                    {sorted.map(p => {
+                      const val = p.categoryScores[cat] ?? 0;
+                      return <td key={p.playerId} className={`text-center px-2 py-1 font-mono font-bold ${val < 0 ? 'text-red-400' : val > 0 ? 'text-white' : 'text-gray-600'}`}>{val !== 0 ? val : '-'}</td>;
+                    })}
+                  </tr>
+                );
+                const fleetNames: [string, string][] = [['FLEET_TF_MARS','T.F Mars'],['FLEET_ECLIPSE','Eclipse'],['FLEET_REBELLION','Rebellion'],['FLEET_TWILIGHT','Twilight']];
+                for (const [fKey, fLabel] of fleetNames) {
+                  const has = sorted.some(p => ((p as any).roundScores?.[fKey] ?? 0) !== 0);
+                  if (!has) continue;
+                  rows.push(
+                    <tr key={fKey} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                      <td className="text-gray-500 px-2 py-0.5 pl-5 sticky left-0 bg-gray-900 z-10 whitespace-nowrap text-[10px]">{fLabel}</td>
+                      {sorted.map(p => {
+                        const val = (p as any).roundScores?.[fKey] ?? 0;
+                        return <td key={p.playerId} className={`text-center px-2 py-0.5 font-mono text-[10px] ${val < 0 ? 'text-red-400' : val > 0 ? 'text-gray-300' : 'text-gray-700'}`}>{val !== 0 ? val : '-'}</td>;
+                      })}
+                    </tr>
+                  );
+                }
+                return rows;
+              }
+              // 라운드 미션 / 부스터 패스: 라운드별 분리 표시
+              if (cat === 'ROUND_SCORING' || cat === 'BOOSTER_PASS') {
+                const totalHasAny = sorted.some(p => (p.categoryScores[cat] ?? 0) !== 0);
+                if (!totalHasAny) return null;
+                const rows = [];
+                // 합계 행
+                rows.push(
+                  <tr key={cat} className="border-b border-gray-800 hover:bg-gray-800/50 bg-gray-800/30">
+                    <td className="text-gray-200 px-2 py-1 sticky left-0 bg-gray-900 z-10 whitespace-nowrap font-bold">
+                      {CATEGORY_LABELS[cat]}
+                    </td>
+                    {sorted.map(p => {
+                      const val = p.categoryScores[cat] ?? 0;
+                      return <td key={p.playerId} className={`text-center px-2 py-1 font-mono font-bold ${val < 0 ? 'text-red-400' : val > 0 ? 'text-white' : 'text-gray-600'}`}>{val !== 0 ? val : '-'}</td>;
+                    })}
+                  </tr>
+                );
+                // 라운드별 세부
+                for (let r = 1; r <= 6; r++) {
+                  const rKey = `${cat}_R${r}`;
+                  const hasRound = sorted.some(p => ((p as any).roundScores?.[rKey] ?? 0) !== 0);
+                  if (!hasRound) continue;
+                  rows.push(
+                    <tr key={rKey} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                      <td className="text-gray-500 px-2 py-0.5 pl-5 sticky left-0 bg-gray-900 z-10 whitespace-nowrap text-[10px]">
+                        R{r}
+                      </td>
+                      {sorted.map(p => {
+                        const val = (p as any).roundScores?.[rKey] ?? 0;
+                        return <td key={p.playerId} className={`text-center px-2 py-0.5 font-mono text-[10px] ${val < 0 ? 'text-red-400' : val > 0 ? 'text-gray-300' : 'text-gray-700'}`}>{val !== 0 ? val : '-'}</td>;
+                      })}
+                    </tr>
+                  );
+                }
+                return rows;
+              }
               const hasAny = sorted.some(p => (p.categoryScores[cat] ?? 0) !== 0);
               if (!hasAny) return null;
               return (

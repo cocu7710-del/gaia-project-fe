@@ -1,4 +1,5 @@
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { ResourceCalculator } from '../utils/resourceCalculator';
 import type { FleetShipAction } from '../types/turnActions';
 import { FLEET_SHIP_ACTION_DEFS, FLEET_ORDER, FLEET_LABELS, FLEET_COLORS } from '../actions/actionRegistry';
@@ -15,23 +16,22 @@ function getFleetActionGain(actionCode: string, playerId: string | null): Record
   const state = useGameStore.getState();
   switch (actionCode) {
     case 'REBELLION_CONVERT': return { qic: 1, credit: 2 };
-    case 'TWILIGHT_FED':      return { qic: 1, ore: 1, vp: 2 };
     case 'TF_MARS_VP': {
       // VP = 보유 기술 타일 수 + 2
       const td = state.techTileData;
       const pid = playerId ?? '';
       const basicCount = td?.basicTiles.filter(t => t.ownerPlayerIds?.includes(pid)).length ?? 0;
-      const advCount = td?.advancedTiles.filter(t => t.takenByPlayerId === pid).length ?? 0;
-      return { vp: basicCount + advCount + 2 };
+      return { vp: basicCount + 2 };
     }
     case 'ECLIPSE_VP': {
       // VP = 식민화한 고유 행성 타입 수 + 2
       const pid = playerId ?? '';
-      const myBuildings = state.buildings.filter(b => b.playerId === pid);
+      const myBuildings = state.buildings.filter((b: any) => b.playerId === pid
+        && b.buildingType !== 'GAIAFORMER' && b.buildingType !== 'SPACE_STATION' && !b.isLantidsMine);
       const planetTypes = new Set<string>();
       for (const b of myBuildings) {
-        const hex = state.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
-        if (hex && hex.planetType !== 'EMPTY' && hex.planetType !== 'TRANSDIM' && hex.planetType !== 'GAIA') {
+        const hex = state.hexes.find((h: any) => h.hexQ === b.hexQ && h.hexR === b.hexR);
+        if (hex && hex.planetType !== 'EMPTY' && hex.planetType !== 'TRANSDIM') {
           planetTypes.add(hex.planetType);
         }
       }
@@ -42,7 +42,11 @@ function getFleetActionGain(actionCode: string, playerId: string | null): Record
 }
 
 export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, playerId }: FleetShipActionsProps) {
-  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction, clearPendingActions, usedPowerActionCodes } = useGameStore();
+  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction, clearPendingActions, usedPowerActionCodes } = useGameStore(useShallow(s => ({
+    fleetProbes: s.fleetProbes, turnState: s.turnState, gamePhase: s.gamePhase, fleetShipMode: s.fleetShipMode,
+    setFleetShipMode: s.setFleetShipMode, addPendingAction: s.addPendingAction, clearPendingActions: s.clearPendingActions,
+    usedPowerActionCodes: s.usedPowerActionCodes,
+  })));
 
   if (gamePhase !== 'PLAYING') return null;
 
@@ -88,6 +92,17 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
         payload: { fleetName: def.fleetName, actionCode: def.actionCode, cost: def.cost, isImmediate: true },
       };
       addPendingAction(action);
+      return;
+    }
+
+    if (def.actionCode === 'TWILIGHT_FED') {
+      // 연방 토큰 선택 모드 진입 (SeatSelector에서 토큰 클릭 시 pending 추가)
+      setFleetShipMode({
+        actionCode: def.actionCode,
+        fleetName: def.fleetName,
+        cost: def.cost,
+        needsFederationToken: true,
+      });
       return;
     }
 

@@ -3,6 +3,7 @@ import { roomApi } from '../api/client';
 import type { FederationTileInfo } from '../api/client';
 import { FEDERATION_TOKEN_IMAGE_MAP } from '../constants/federationTokenImage';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface Props {
   roomId: string;
@@ -15,7 +16,10 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
   const [tiles, setTiles] = useState<FederationTileInfo[]>([]);
   const [fleetTiles, setFleetTiles] = useState<FederationTileInfo[]>([]);
   const [minTokens, setMinTokens] = useState(0);
-  const { federationMode, setFederationMode, setFederationPhase, turnState, gamePhase, seats, fleetProbes } = useGameStore();
+  const { federationMode, setFederationMode, setFederationPhase, turnState, gamePhase, seats, fleetProbes } = useGameStore(useShallow(s => ({
+    federationMode: s.federationMode, setFederationMode: s.setFederationMode, setFederationPhase: s.setFederationPhase,
+    turnState: s.turnState, gamePhase: s.gamePhase, seats: s.seats, fleetProbes: s.fleetProbes,
+  })));
 
   const mySeat = seats.find(s => s.playerId === playerId);
   const isIvits = mySeat?.raceCode === 'IVITS';
@@ -82,6 +86,9 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
       useGameStore.setState((s) => ({
         federationMode: s.federationMode ? { ...s.federationMode, phase: 'PLACE_SPECIAL_MINE' as const, specialTileCode: tileCode } : null,
       }));
+    } else {
+      // 기술 타일 획득 등 일반 타일: federationMode 해제 → pendingAnalyzer 메시지 표시
+      useGameStore.getState().setFederationMode(null);
     }
   };
 
@@ -116,9 +123,9 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
               title={`${tile.description} (${tile.quantity}개)`}
             >
               {imgSrc ? (
-                <img src={imgSrc} alt={tile.tileCode} className="h-[60px] w-auto object-contain" draggable={false} />
+                <img src={imgSrc} alt={tile.tileCode} className="h-[40px] w-auto object-contain" draggable={false} />
               ) : (
-                <div className="h-[72px] w-24 bg-gray-700 rounded flex items-center justify-center">
+                <div className="h-[60px] w-20 bg-gray-700 rounded flex items-center justify-center">
                   <span className="text-[8px] text-gray-400">{tile.tileCode.replace('FED_', '')}</span>
                 </div>
               )}

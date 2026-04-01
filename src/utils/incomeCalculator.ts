@@ -65,7 +65,7 @@ function getEconomyIncome(level: number, isOptionA: boolean): Partial<IncomeResu
     case 2: return { credit: 2, ore: 1, powerCharge: 2 };
     case 3: return isOptionA ? { credit: 3, ore: 1 } : { credit: 2, ore: 1, powerCharge: 3 };
     case 4: return isOptionA ? { credit: 4, ore: 2 } : { credit: 2, ore: 2, powerCharge: 2 };
-    case 5: return { credit: 6, ore: 3, powerCharge: 2 };
+    case 5: return {}; // 5단계: 수입 사라지고 즉시 보상(6c+3o+6pw)으로 전환
     default: return {};
   }
 }
@@ -75,7 +75,8 @@ function getEconomyIncome(level: number, isOptionA: boolean): Partial<IncomeResu
 // ─────────────────────────────────────────
 function getScienceKnowledge(level: number): number {
   if (level <= 0) return 0;
-  if (level >= 4) return 4;
+  if (level >= 5) return 0; // 5단계: 수입 사라지고 즉시 9지식으로 전환
+  if (level === 4) return 4;
   return level; // 1, 2, 3
 }
 

@@ -22,7 +22,15 @@ export type EventType =
   | 'BID_UPDATED'
   | 'BID_WON'
   | 'BID_SEAT_PICKED'
-  | 'BIDDING_COMPLETED';
+  | 'BIDDING_COMPLETED'
+  | 'ITARS_GAIA_CHOICE'
+  | 'TINKEROIDS_ACTION_CHOICE'
+  | 'TERRANS_GAIA_CHOICE'
+  | 'VIEWER_COUNT'
+  | 'GAME_FINISHED'
+  | 'ACTION_LOGGED'
+  | 'POWER_INCOME_CHOICE'
+  | 'POWER_INCOME_COMPLETED';
 
 export interface GameEvent {
   roomId: string;
@@ -62,9 +70,7 @@ class GameSocketClient {
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
-      debug: (str) => {
-        console.log('[WS Debug]', str);
-      },
+      debug: import.meta.env.DEV ? (str) => { console.log('[WS Debug]', str); } : () => {},
       onConnect: () => {
         console.log('[WS] Connected to room:', roomId);
         this.connected = true;

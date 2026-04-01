@@ -3,6 +3,7 @@ import { roomApi, fleetApi } from '../api/client';
 import { ResourceCalculator } from '../utils/resourceCalculator';
 import type { TechTileInfo, ArtifactInfo } from '../api/client';
 import type { FleetShipAction } from '../types/turnActions';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/gameStore';
 import { PLANET_COLORS } from '../constants/colors';
 // PLANET_COLORS는 getPlanetTypeFromFaction과 함께 토큰 색상 계산에 사용
@@ -86,7 +87,7 @@ const FLEET_ACTION_FSA_META: Record<string, {
   FLEET_REBELLION_1: { fshCode: 'REBELLION_TECH',     fleetName: 'REBELLION', isImmediate: true, needsTile: true },
   FLEET_REBELLION_2: { fshCode: 'REBELLION_UPGRADE',  fleetName: 'REBELLION', isImmediate: true, needsUpgradeMineToTs: true },
   FLEET_REBELLION_3: { fshCode: 'REBELLION_CONVERT',  fleetName: 'REBELLION', isImmediate: true },
-  FLEET_TWILIGHT_1:  { fshCode: 'TWILIGHT_FED',       fleetName: 'TWILIGHT',  isImmediate: true },
+  FLEET_TWILIGHT_1:  { fshCode: 'TWILIGHT_FED',       fleetName: 'TWILIGHT',  isImmediate: true, needsFederationToken: true },
   FLEET_TWILIGHT_2:  { fshCode: 'TWILIGHT_UPGRADE',   fleetName: 'TWILIGHT',  isImmediate: true, needsTsToRl: true },
   FLEET_TWILIGHT_3:  { fshCode: 'TWILIGHT_NAV',       fleetName: 'TWILIGHT',  isImmediate: false, navBonus: 3 },
 };
@@ -262,9 +263,18 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     usedPowerActionCodes, gamePhase, currentTurnSeatNo, mySeatNo, addPendingAction,
     fleetShipMode, setFleetShipMode,
     tentativeTechTileCode, setTentativeTechTile,
+    itarsGaiaChoice,
     setGameArtifacts,
     federationMode, setFederationMode,
-  } = useGameStore();
+  } = useGameStore(useShallow(s => ({
+    fleetProbes: s.fleetProbes, turnState: s.turnState, playerId: s.playerId, setFleetProbes: s.setFleetProbes,
+    usedPowerActionCodes: s.usedPowerActionCodes, gamePhase: s.gamePhase, currentTurnSeatNo: s.currentTurnSeatNo,
+    mySeatNo: s.mySeatNo, addPendingAction: s.addPendingAction, fleetShipMode: s.fleetShipMode,
+    setFleetShipMode: s.setFleetShipMode, tentativeTechTileCode: s.tentativeTechTileCode,
+    itarsGaiaChoice: s.itarsGaiaChoice,
+    setTentativeTechTile: s.setTentativeTechTile, setGameArtifacts: s.setGameArtifacts,
+    federationMode: s.federationMode, setFederationMode: s.setFederationMode,
+  })));
 
   const isMyTurn = gamePhase === 'PLAYING' && mySeatNo !== null && mySeatNo === currentTurnSeatNo;
   const inFleetShipMode = fleetShipMode !== null;
@@ -375,14 +385,18 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     loadData();
   }, [roomId, refreshKey]);
 
-  // 기술 타일 선택 모드 활성화 여부 (연구소/아카데미/리벨리온 3QIC)
-  const isTechPickActive = isMyTurn && !tentativeTechTileCode && turnState.pendingActions.some(
-    a => (a.type === 'UPGRADE_BUILDING' && (a.payload.toType === 'TRADING_STATION' || a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'))
+  // 아이타 기술타일 선택 모드
+  const isItarsTilePicking = itarsGaiaChoice?.tilePicking === true && itarsGaiaChoice.itarsPlayerId === myPlayerId;
+
+  // 기술 타일 선택 모드 활성화 여부 (연구소/아카데미/리벨리온/스자PI/아이타 의회)
+  const isTechPickActive = (isItarsTilePicking && !tentativeTechTileCode) || (isMyTurn && !tentativeTechTileCode && turnState.pendingActions.some(
+    a => (a.type === 'UPGRADE_BUILDING' && (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'
+          || a.payload.toType === 'ACADEMY_KNOWLEDGE' || a.payload.toType === 'ACADEMY_QIC'
+          || (a.payload.toType === 'PLANETARY_INSTITUTE' && a.payload.factionCode === 'SPACE_GIANTS')))
       || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode)
       || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_UPGRADE' && (a.payload as any).hexQ != null)
-      || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'ECLIPSE_TECH')
       || (a.type === 'FORM_FEDERATION' && a.payload.tileCode === 'FED_EXP_TILE_1')
-  );
+  ));
 
   // pending 중인 파워 액션 + 함대 액션 코드 추적
   const usedInPending = turnState.pendingActions
@@ -417,6 +431,9 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
   const handleActionClick = (fleetCode: string, config: ActionConfig) => {
     if (!isMyTurn || hasPendingAction || inFleetShipMode || usedCodes.has(config.code)) return;
     if (!myPlayerId || !(fleetProbes[fleetCode] || []).includes(myPlayerId)) return;
+    // 타클론: 브레인스톤이 가이아(0)에 있고 파워 비용이 있는 액션만 차단
+    if (currentPlayerState && (currentPlayerState as any).factionCode === 'TAKLONS'
+        && (currentPlayerState as any).brainstoneBowl === 0 && config.cost.power) return;
     if (currentPlayerState && !ResourceCalculator.canAfford(currentPlayerState as any, config.cost)) {
       // 네블라 PI: 파워 2배
       const isNevPi = config.cost.power && (currentPlayerState as any).factionCode === 'NEVLAS'
@@ -430,22 +447,46 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     }
 
     const meta = FLEET_ACTION_FSA_META[config.code];
-    if (!meta) return; // 정의되지 않은 액션 무시
+    if (!meta) return;
+
+    // 타클론: 파워 비용이 있고 브레인스톤이 bowl3에 있으면 사용 여부 확인
+    let useBrainstone = false;
+    if (config.cost.power && currentPlayerState
+        && (currentPlayerState as any).factionCode === 'TAKLONS'
+        && (currentPlayerState as any).brainstoneBowl === 3) {
+      const bowl3 = currentPlayerState.powerBowl3 ?? 0;
+      if (bowl3 < config.cost.power) {
+        // bowl3만으로 부족 → 브레인스톤 필수
+        useBrainstone = true;
+      } else {
+        // bowl3만으로도 가능 → 사용 여부 확인
+        useBrainstone = confirm('브레인스톤을 사용하시겠습니까?');
+      }
+    }
+
+    if (meta.needsFederationToken) {
+      // 연방 토큰 선택 모드 진입 (SeatSelector에서 토큰 클릭 시 pending 추가)
+      setFleetShipMode({
+        actionCode: meta.fshCode,
+        fleetName: meta.fleetName,
+        cost: config.cost,
+        needsFederationToken: true,
+      });
+      return;
+    }
 
     if (meta.needsTrack) {
-      // trackCode 없이 pending 추가 → TechTracks에서 트랙 선택
       const action: FleetShipAction = {
         id: `fsa-${Date.now()}-${Math.random()}`,
         type: 'FLEET_SHIP_ACTION',
         timestamp: Date.now(),
-        payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true },
+        payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true, useBrainstone },
       };
       addPendingAction(action);
       return;
     }
 
     if (meta.needsArtifact) {
-      // trackCode 없이 pending 추가 → TWILIGHT 보드에서 인공물 클릭 대기
       const action: FleetShipAction = {
         id: `fsa-${Date.now()}-${Math.random()}`,
         type: 'FLEET_SHIP_ACTION',
@@ -455,6 +496,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
           actionCode: meta.fshCode,
           cost: config.cost,
           isImmediate: true,
+          useBrainstone,
         },
       };
       addPendingAction(action);
@@ -484,7 +526,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
         id: `fsa-${Date.now()}-${Math.random()}`,
         type: 'FLEET_SHIP_ACTION',
         timestamp: Date.now(),
-        payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true },
+        payload: { fleetName: meta.fleetName, actionCode: meta.fshCode, cost: config.cost, isImmediate: true, useBrainstone },
       };
       addPendingAction(hexAction);
       setFleetShipMode({
@@ -507,15 +549,15 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
       const td = storeState.techTileData;
       const pid = myPlayerId ?? '';
       const basicCount = td?.basicTiles.filter(t => (t.ownerPlayerIds ?? []).includes(pid)).length ?? 0;
-      const advCount = td?.advancedTiles.filter(t => t.takenByPlayerId === pid).length ?? 0;
-      resolvedGain = { vp: basicCount + advCount + 2 };
+      resolvedGain = { vp: basicCount + 2 };
     } else if (meta.fshCode === 'ECLIPSE_VP') {
       const storeState = useGameStore.getState();
-      const myBuildings = storeState.buildings.filter(b => b.playerId === myPlayerId);
+      const myBuildings = storeState.buildings.filter(b => b.playerId === myPlayerId
+        && b.buildingType !== 'GAIAFORMER' && b.buildingType !== 'SPACE_STATION' && !b.isLantidsMine);
       const planetTypes = new Set<string>();
       for (const b of myBuildings) {
         const hex = storeState.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
-        if (hex && hex.planetType !== 'EMPTY' && hex.planetType !== 'TRANSDIM' && hex.planetType !== 'GAIA') {
+        if (hex && hex.planetType !== 'EMPTY' && hex.planetType !== 'TRANSDIM') {
           planetTypes.add(hex.planetType);
         }
       }
@@ -533,6 +575,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
         isImmediate: meta.isImmediate,
         terraformDiscount: meta.terraformDiscount,
         navBonus: meta.navBonus,
+        useBrainstone,
       },
     };
     addPendingAction(action);
@@ -559,6 +602,9 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
       useGameStore.setState((s) => ({
         federationMode: s.federationMode ? { ...s.federationMode, phase: 'PLACE_SPECIAL_MINE' as const, specialTileCode: tileCode } : null,
       }));
+    } else {
+      // 기술 타일 획득 등 일반 타일: federationMode 해제 → pendingAnalyzer 메시지 표시
+      useGameStore.getState().setFederationMode(null);
     }
   };
 
@@ -599,20 +645,31 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
               return disabled;
             })()}
             onArtifactClick={(artifactCode) => {
-              const action: FleetShipAction = {
-                id: `fsa-${Date.now()}-${Math.random()}`,
-                type: 'FLEET_SHIP_ACTION',
-                timestamp: Date.now(),
-                payload: {
-                  fleetName: 'TWILIGHT',
+              if (artifactCode === 'ARTIFACT_13') {
+                // 연방 토큰 보상 1회 받기 → 연방 토큰 선택 모드 진입
+                setFleetShipMode({
                   actionCode: 'TWILIGHT_ARTIFACT',
+                  fleetName: 'TWILIGHT',
                   cost: { power: 6 },
-                  isImmediate: true,
+                  needsFederationToken: true,
                   artifactCode,
-                },
-              };
-              addPendingAction(action);
-              setTentativeTechTile(artifactCode, null);
+                });
+              } else {
+                const action: FleetShipAction = {
+                  id: `fsa-${Date.now()}-${Math.random()}`,
+                  type: 'FLEET_SHIP_ACTION',
+                  timestamp: Date.now(),
+                  payload: {
+                    fleetName: 'TWILIGHT',
+                    actionCode: 'TWILIGHT_ARTIFACT',
+                    cost: { power: 6 },
+                    isImmediate: true,
+                    artifactCode,
+                  },
+                };
+                addPendingAction(action);
+                setTentativeTechTile(artifactCode, null);
+              }
             }}
           />
           );

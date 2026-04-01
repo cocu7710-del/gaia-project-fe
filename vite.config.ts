@@ -15,5 +15,19 @@ export default defineConfig({
   },
   server: {
     allowedHosts: ['.trycloudflare.com'],
+    hmr: false,  // 터널 사용 시 HMR 끊김으로 인한 페이지 새로고침 방지
+  },
+  build: {
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          websocket: ['@stomp/stompjs', 'sockjs-client'],
+          state: ['zustand'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
   },
 })

@@ -5,7 +5,8 @@ import type { ResourceCost } from '../types/turnActions';
 /** 건물 파워 값 (리치 계산용) */
 export function buildingPowerValue(buildingType: string, hasBigBuildingBonus = false): number {
   switch (buildingType) {
-    case 'MINE': return 1;
+    case 'MINE':
+    case 'LOST_PLANET_MINE': return 1;
     case 'TRADING_STATION':
     case 'RESEARCH_LAB': return 2;
     case 'PLANETARY_INSTITUTE':
@@ -20,7 +21,7 @@ export function buildingPowerValue(buildingType: string, hasBigBuildingBonus = f
 export function hasBasicTile9(techTileData: any, playerId: string): boolean {
   if (!techTileData || !playerId) return false;
   return techTileData.basicTiles?.some(
-    (t: any) => t.tileCode === 'BASIC_TILE_9' && t.takenByPlayerId === playerId && !t.isCovered
+    (t: any) => t.tileCode === 'BASIC_TILE_9' && (t.ownerPlayerIds ?? []).includes(playerId) && !(t.coveredByMap ?? {})[playerId]
   ) ?? false;
 }
 

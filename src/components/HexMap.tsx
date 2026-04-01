@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { mapApi, roomApi } from '../api/client';
 import type { GameHex, PlayerStateResponse, SeatView } from '../api/client';
 import { ResourceCalculator } from '../utils/resourceCalculator';
@@ -39,6 +40,7 @@ import gaiaPng from '../assets/planet/GAIA.png';
 import transdimPng from '../assets/planet/TRANSDIM.png';
 import asteroidsPng from '../assets/planet/ASTEROIDS.png';
 import lostPlanetPng from '../assets/planet/LOST_PLANET.png';
+import blackPlanetPng from '../assets/planet/Black_planet.png';
 
 import tfMarsPng from '../assets/forgotten_fleet/FORGOTTEN_FLEET_TF_MARS.png';
 import eclipsePng from '../assets/forgotten_fleet/FORGOTTEN_FLEET_ECLIPSE.png';
@@ -68,6 +70,7 @@ const PLANET_IMAGES: Record<string, string> = {
   TRANSDIM: transdimPng,
   ASTEROIDS: asteroidsPng,
   LOST_PLANET: lostPlanetPng,
+  BLACK_PLANET: blackPlanetPng,
 };
 
 /** planetType → 이미지 크기 비율 (기본 0.9) */
@@ -237,7 +240,7 @@ function RemovedPomerPanel({
 }
 
 const LEGEND_HOME_TYPES = ['TERRA', 'VOLCANIC', 'OXIDE', 'DESERT', 'SWAMP', 'TITANIUM', 'ICE'] as const;
-const LEGEND_OTHER_TYPES = ['GAIA', 'LOST_PLANET', 'TRANSDIM', 'ASTEROIDS'] as const;
+const LEGEND_OTHER_TYPES = ['GAIA', 'LOST_PLANET', 'ASTEROIDS'] as const;
 
 function Legend({ seats }: { seats: SeatView[] }) {
   const buildings = useGameStore(s => s.buildings);
@@ -259,6 +262,7 @@ function Legend({ seats }: { seats: SeatView[] }) {
       if (s.playerId) seatByPid.set(s.playerId, s);
     }
     for (const b of buildings) {
+      if (b.isLantidsMine) continue; // 란티다 기생 광산은 행성 종류에 포함하지 않음
       const pt = planetByCoord.get(`${b.hexQ},${b.hexR}`);
       if (!pt) continue;
       const seat = seatByPid.get(b.playerId);
@@ -540,7 +544,23 @@ function HexTile({
             />
         )}
 
-        {building && renderBuildingShape(
+        {/* 검은행성 프리뷰/확정: Black_planet 이미지 + 플레이어 마커 */}
+        {building && (building.buildingType === 'LOST_PLANET_MINE' || hex.planetType === 'BLACK_PLANET') ? (
+          <g pointerEvents="none">
+            <image
+              href={blackPlanetPng}
+              x={x - HEX_SIZE * 0.75}
+              y={y - HEX_SIZE * 0.75}
+              width={HEX_SIZE * 1.5}
+              height={HEX_SIZE * 1.5}
+              clipPath={`url(#${clipId})`}
+            />
+            <circle cx={x} cy={y} r={HEX_SIZE * 0.22}
+              fill={buildingOwnerColor ?? '#ffffff'}
+              stroke="white" strokeWidth="1.5"
+              opacity={isTentative ? 0.6 : 1.0} />
+          </g>
+        ) : building && renderBuildingShape(
           x, y, building.buildingType,
           buildingOwnerColor ?? '#ffffff',
           isTentative,
@@ -643,7 +663,23 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
     techTileData,
     selectingPassBooster,
     tentativeTechTileCode,
-  } = useGameStore();
+    tentativeCoverTileCode,
+  } = useGameStore(useShallow(s => ({
+    hexes: s.hexes, buildings: s.buildings, gamePhase: s.gamePhase,
+    nextSetupSeatNo: s.nextSetupSeatNo, currentTurnSeatNo: s.currentTurnSeatNo,
+    playerId: s.playerId, mySeatNo: s.mySeatNo, seats: s.seats,
+    turnState: s.turnState, fleetProbes: s.fleetProbes, fleetShipMode: s.fleetShipMode,
+    tinkeroidsExtraRingPlanet: s.tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet: s.moweidsExtraRingPlanet,
+    addPendingAction: s.addPendingAction, updateLastPendingActionPayload: s.updateLastPendingActionPayload,
+    completeFleetShipHexSelection: s.completeFleetShipHexSelection, addTentativeBuilding: s.addTentativeBuilding,
+    updatePreviewState: s.updatePreviewState, clearFleetShipMode: s.clearFleetShipMode, setHexes: s.setHexes,
+    federationMode: s.federationMode, addFederationBuilding: s.addFederationBuilding,
+    removeFederationBuilding: s.removeFederationBuilding, addFederationToken: s.addFederationToken,
+    removeFederationToken: s.removeFederationToken, federationGroups: s.federationGroups,
+    techTileData: s.techTileData, selectingPassBooster: s.selectingPassBooster,
+    tentativeTechTileCode: s.tentativeTechTileCode,
+    tentativeCoverTileCode: s.tentativeCoverTileCode,
+  })));
 
   const { hexes: localHexes, loading, error } = useHexes(roomId);
   // store에 hexes가 있으면 우선 사용 (ROUND_STARTED 시 갱신됨), 없으면 로컬 로딩 사용
@@ -976,8 +1012,11 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             const bannerAnalysis = analyzePending(pending, fleetShipMode, tentativeTechTileCode, gamePhase, tentativeTechTrackCode);
             let message = bannerAnalysis.bannerMessage;
             let hasAction = bannerAnalysis.hasPending || bannerAnalysis.needsFleetHex;
-            // 연방 모드 배너
-            if (fedMode) {
+            // 연방 모드 배너 (이미 연방 타일을 선택 완료한 경우 스킵 → pendingAnalyzer 메시지 사용)
+            // 단, PLACE_SPECIAL_MINE(3삽/무한거리 광산)은 fedMode 배너 유지
+            const hasFedPending = pending.some(a => a.type === 'FORM_FEDERATION');
+            const isSpecialMinePhase = fedMode?.phase === 'PLACE_SPECIAL_MINE';
+            if (fedMode && (!hasFedPending || isSpecialMinePhase)) {
               hasAction = true;
               const fedStore = useGameStore.getState();
               let fedButtons: React.ReactNode = null;
@@ -1181,7 +1220,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             const myState = turnState.previewPlayerState || playerStates.find(p => p.seatNo === mySeatNo);
             const leechText = (leech: LeechInfo[]) =>
               leech.length === 0 ? '' : `리치: ${leech.map(l => `${l.seatNo}번 +${l.power}pw(-${l.vpCost}VP)`).join(' ')}`;
-            const panelW = 140;
+            const panelW = 210;
             const px = upgradeChoiceHex.px + HEX_SIZE * 1.2;
 
             const isBescods = mySeat?.raceCode === 'BESCODS';
@@ -1206,46 +1245,46 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
               const canAcademyK = isBescods && costAcademy && (!myState || ResourceCalculator.canAfford(myState, costAcademy)) && (myState?.stockAcademy ?? 1) > 0 && !hasKnowledgeAcademy;
               const canAcademyQ = isBescods && costAcademy && (!myState || ResourceCalculator.canAfford(myState, costAcademy)) && (myState?.stockAcademy ?? 1) > 0 && !hasQicAcademy;
 
-              const panelH = isBescods ? 200 : 130;
+              const panelH = isBescods ? 300 : 195;
               const py = upgradeChoiceHex.py - panelH / 2;
               return (
                 <foreignObject x={px} y={py} width={panelW} height={panelH}>
                   <div style={{ width: panelW, height: panelH, fontFamily: 'sans-serif' }}
                     className="flex flex-col rounded-lg overflow-hidden border-2 border-yellow-500 shadow-xl">
-                    <div className="bg-yellow-600 text-black text-[10px] font-bold text-center py-1 px-1">업그레이드 선택</div>
+                    <div className="bg-yellow-600 text-black text-[15px] font-bold text-center py-1.5 px-1.5">업그레이드 선택</div>
                     <button onClick={() => canRL && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'RESEARCH_LAB')}
                       disabled={!canRL}
-                      className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canRL ? 'bg-blue-800 hover:bg-blue-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                      <span className="text-white text-[10px] font-bold">연구소</span>
-                      <span className="text-blue-200 text-[9px]">5c · 3o</span>
-                      {leechResLab.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechResLab)}</span>}
+                      className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1.5 ${canRL ? 'bg-blue-800 hover:bg-blue-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                      <span className="text-white text-[15px] font-bold">연구소</span>
+                      <span className="text-blue-200 text-[13px]">5c · 3o</span>
+                      {leechResLab.length > 0 && <span className="text-yellow-300 text-[12px] mt-0.5 text-center leading-tight">{leechText(leechResLab)}</span>}
                     </button>
                     {!isBescods && (
                       <button onClick={() => canPI && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE')}
                         disabled={!canPI}
-                        className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canPI ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                        <span className="text-white text-[10px] font-bold">행성 의회</span>
-                        <span className="text-purple-200 text-[9px]">6c · 4o</span>
-                        {leechPI.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechPI)}</span>}
+                        className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1.5 ${canPI ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                        <span className="text-white text-[15px] font-bold">행성 의회</span>
+                        <span className="text-purple-200 text-[13px]">6c · 4o</span>
+                        {leechPI.length > 0 && <span className="text-yellow-300 text-[12px] mt-0.5 text-center leading-tight">{leechText(leechPI)}</span>}
                       </button>
                     )}
                     {isBescods && (
                       <>
                         <button onClick={() => canAcademyK && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_KNOWLEDGE')}
                           disabled={!canAcademyK}
-                          className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canAcademyK ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                          <span className="text-white text-[10px] font-bold">아카데미 (2지식 수입)</span>
-                          <span className="text-green-200 text-[9px]">6c · 6o</span>
+                          className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1.5 ${canAcademyK ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                          <span className="text-white text-[15px] font-bold">아카데미 (2지식 수입)</span>
+                          <span className="text-green-200 text-[13px]">6c · 6o</span>
                         </button>
                         <button onClick={() => canAcademyQ && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_QIC')}
                           disabled={!canAcademyQ}
-                          className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canAcademyQ ? 'bg-cyan-800 hover:bg-cyan-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                          <span className="text-white text-[10px] font-bold">아카데미 (1QIC 액션)</span>
-                          <span className="text-cyan-200 text-[9px]">6c · 6o</span>
+                          className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1.5 ${canAcademyQ ? 'bg-cyan-800 hover:bg-cyan-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                          <span className="text-white text-[15px] font-bold">아카데미 (1QIC 액션)</span>
+                          <span className="text-cyan-200 text-[13px]">6c · 6o</span>
                         </button>
                       </>
                     )}
-                    <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[9px] text-center py-1 cursor-pointer">취소</button>
+                    <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[13px] text-center py-1.5 cursor-pointer">취소</button>
                   </div>
                 </foreignObject>
               );
@@ -1258,21 +1297,21 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
                 const costPI2 = calcUpgradeCost(upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
                 const canPI2 = (!myState || ResourceCalculator.canAfford(myState, costPI2)) && (myState?.stockPlanetaryInstitute ?? 1) > 0;
                 const leechPI2 = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'PLANETARY_INSTITUTE', allBuildings, playerStates, playerId, techTileData);
-                const panelH2 = 80;
+                const panelH2 = 120;
                 const py2 = upgradeChoiceHex.py - panelH2 / 2;
                 return (
                   <foreignObject x={px} y={py2} width={panelW} height={panelH2}>
                     <div style={{ width: panelW, height: panelH2, fontFamily: 'sans-serif' }}
                       className="flex flex-col rounded-lg overflow-hidden border-2 border-yellow-500 shadow-xl">
-                      <div className="bg-yellow-600 text-black text-[10px] font-bold text-center py-1 px-1">업그레이드</div>
+                      <div className="bg-yellow-600 text-black text-[15px] font-bold text-center py-1.5 px-1.5">업그레이드</div>
                       <button onClick={() => canPI2 && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE')}
                         disabled={!canPI2}
-                        className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canPI2 ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                        <span className="text-white text-[10px] font-bold">행성 의회</span>
-                        <span className="text-purple-200 text-[9px]">6c · 4o</span>
-                        {leechPI2.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechPI2)}</span>}
+                        className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1.5 ${canPI2 ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                        <span className="text-white text-[15px] font-bold">행성 의회</span>
+                        <span className="text-purple-200 text-[13px]">6c · 4o</span>
+                        {leechPI2.length > 0 && <span className="text-yellow-300 text-[12px] mt-0.5 text-center leading-tight">{leechText(leechPI2)}</span>}
                       </button>
-                      <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[9px] text-center py-1 cursor-pointer">취소</button>
+                      <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[13px] text-center py-1.5 cursor-pointer">취소</button>
                     </div>
                   </foreignObject>
                 );
@@ -1287,34 +1326,33 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
               const canKnowledge = canAffordAcademy && hasStock && !hasKnowledgeAcademy;
               const canQic = canAffordAcademy && hasStock && !hasQicAcademy;
               const leechAcademy = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'ACADEMY', allBuildings, playerStates, playerId, techTileData);
-              const panelH = 140;
+              const panelH = 210;
               const py = upgradeChoiceHex.py - panelH / 2;
               const isItars = mySeat?.raceCode === 'ITARS';
               return (
                 <foreignObject x={px} y={py} width={panelW} height={panelH}>
                   <div style={{ width: panelW, height: panelH, fontFamily: 'sans-serif' }}
                     className="flex flex-col rounded-lg overflow-hidden border-2 border-yellow-500 shadow-xl">
-                    <div className="bg-yellow-600 text-black text-[10px] font-bold text-center py-1 px-1">학원 선택 (6c · 6o)</div>
-                    {leechAcademy.length > 0 && <div className="text-yellow-300 text-[8px] text-center px-1">{leechText(leechAcademy)}</div>}
+                    <div className="bg-yellow-600 text-black text-[15px] font-bold text-center py-1.5 px-1.5">아카데미 선택 (6c · 6o)</div>
                     <button onClick={() => canKnowledge && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_KNOWLEDGE')}
                       disabled={!canKnowledge}
-                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canKnowledge ? 'bg-indigo-800 hover:bg-indigo-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                      <img src={knowledgePng} alt="지식" className="w-5 h-5" />
+                      className={`flex-1 flex items-center justify-center gap-2 border-b border-yellow-500 px-1.5 ${canKnowledge ? 'bg-indigo-800 hover:bg-indigo-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                      <img src={knowledgePng} alt="지식" className="w-7 h-7" />
                       <div className="flex flex-col items-start">
-                        <span className="text-white text-[10px] font-bold">지식 학원</span>
-                        <span className="text-green-200 text-[9px]">{isItars ? '3' : '2'}지식 수입</span>
+                        <span className="text-white text-[15px] font-bold">아카데미</span>
+                        <span className="text-green-200 text-[13px]">{isItars ? '3' : '2'}지식 수입</span>
                       </div>
                     </button>
                     <button onClick={() => canQic && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_QIC')}
                       disabled={!canQic}
-                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canQic ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                      <img src={isBalTaks ? creditImg : qicPng} alt={isBalTaks ? '돈' : 'QIC'} className="w-5 h-5" />
+                      className={`flex-1 flex items-center justify-center gap-2 border-b border-yellow-500 px-1.5 ${canQic ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                      <img src={isBalTaks ? creditImg : qicPng} alt={isBalTaks ? '돈' : 'QIC'} className="w-7 h-7" />
                       <div className="flex flex-col items-start">
-                        <span className="text-white text-[10px] font-bold">{isBalTaks ? '돈 학원' : 'QIC 학원'}</span>
-                        <span className="text-indigo-200 text-[9px]">{isBalTaks ? '4돈 획득 액션' : 'QIC 획득 액션'}</span>
+                        <span className="text-white text-[15px] font-bold">아카데미</span>
+                        <span className="text-indigo-200 text-[13px]">{isBalTaks ? '4돈 획득 액션' : 'QIC 획득 액션'}</span>
                       </div>
                     </button>
-                    <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[9px] text-center py-1 cursor-pointer">취소</button>
+                    <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[13px] text-center py-1.5 cursor-pointer">취소</button>
                   </div>
                 </foreignObject>
               );

@@ -2,11 +2,13 @@ import { useState, useRef, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 import type { SeatView, PlayerStateResponse, BoosterOfferResponse } from '../api/client';
 import { roomApi } from '../api/client';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore, FEDERATION_TILE_REWARD } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { TECH_TILE_IMAGE_MAP } from '../constants/techTileImage.ts';
 import { ADV_TECH_TILE_IMAGE_MAP } from '../constants/advTechTileImage.ts';
 import { FEDERATION_TOKEN_IMAGE_MAP } from '../constants/federationTokenImage';
 import { ARTIFACT_IMAGE_MAP } from '../constants/artifactImage';
+import { BOOSTER_IMAGE_MAP } from '../constants/boosterImage';
 import type { TechTileActionAction, FactionAbilityAction, BoosterAction } from '../types/turnActions';
 import { BOOSTER_ACTION_DEFS } from '../actions/actionRegistry';
 import { PLANET_COLORS } from '../constants/colors';
@@ -115,9 +117,18 @@ interface Props {
 }
 
 export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSeatNo, specialPhaseSeatNo, playerStates = [], boosters = [], onClaimSeat, isMyTurn = false, gamePhase, onBurnPower, roomId, onFactionAbilityDone }: Props) {
-  const { turnState, tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet, economyTrackOption, addFreeConvert, techTileData, addPendingAction, leechBatch, federationGroups, gameArtifacts, passedSeatNos, powerIncomeChoice } = useGameStore();
+  const { turnState, tinkeroidsExtraRingPlanet, moweidsExtraRingPlanet, economyTrackOption, addFreeConvert, techTileData, addPendingAction, leechBatch, federationGroups, gameArtifacts, passedSeatNos, powerIncomeChoice, fleetShipMode, setFleetShipMode, clearPendingActions, setTentativeFedTokenCode, setFederationMode } = useGameStore(useShallow(s => ({
+    turnState: s.turnState, tinkeroidsExtraRingPlanet: s.tinkeroidsExtraRingPlanet,
+    moweidsExtraRingPlanet: s.moweidsExtraRingPlanet, economyTrackOption: s.economyTrackOption,
+    addFreeConvert: s.addFreeConvert, techTileData: s.techTileData, addPendingAction: s.addPendingAction,
+    leechBatch: s.leechBatch, federationGroups: s.federationGroups, gameArtifacts: s.gameArtifacts,
+    passedSeatNos: s.passedSeatNos, powerIncomeChoice: s.powerIncomeChoice, fleetShipMode: s.fleetShipMode,
+    setFleetShipMode: s.setFleetShipMode, clearPendingActions: s.clearPendingActions,
+    setTentativeFedTokenCode: s.setTentativeFedTokenCode, setFederationMode: s.setFederationMode,
+  })));
   const [abilityLoading, setAbilityLoading] = useState(false);
   const [powerConvertSeatNo, setPowerConvertSeatNo] = useState<number | null>(null);
+  const [hoveredSeatNo, setHoveredSeatNo] = useState<number | null>(null);
   const svgRefs = useRef<Record<number, HTMLElement | null>>({});
   const { previewPlayerState } = turnState;
 
@@ -222,6 +233,10 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
         return (
           <div
             key={seat.seatNo}
+            data-seat={seat.seatNo}
+            onMouseEnter={() => setHoveredSeatNo(seat.seatNo)}
+            onMouseLeave={() => setHoveredSeatNo(null)}
+            onTouchStart={() => setHoveredSeatNo(prev => prev === seat.seatNo ? null : seat.seatNo)}
             className={`relative game-panel ${
               isCurrentTurn ? 'ring-2 ring-emerald-400/70 !border-emerald-500/30' : ''
             } ${
@@ -255,7 +270,8 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
 
                   {/* Bowl 2: 10시(300도) ~ 1시(30도) - 중간 보라 */}
                   {(() => {
-                    const canBurn = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && resources.power2 >= 2;
+                    const bowl2WithBrain = resources.power2 + (resources.brainstoneBowl === 2 ? 1 : 0);
+                    const canBurn = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && bowl2WithBrain >= 2;
                     return (
                       <g onClick={() => canBurn && onBurnPower?.()} style={{ cursor: canBurn ? 'pointer' : 'default' }}>
                         <path d={describeArc(50, 50, 38, 300, 390)} fill="none" stroke="#7c3aed" strokeWidth="14" />
@@ -296,7 +312,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                   {resources.brainstoneBowl != null && (() => {
                     // 브레인스톤이 위치한 볼/가이아 옆에 골든 마커 표시
                     const pos = resources.brainstoneBowl === 0
-                      ? { x: 50, y: 90 }  // 가이아 구역 옆
+                      ? { x: 80, y: 90 }  // 가이아 구역 옆
                       : resources.brainstoneBowl === 1
                       ? { x: 8, y: 60 }   // Bowl 1 옆
                       : resources.brainstoneBowl === 2
@@ -323,7 +339,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                     />
                     {/* 게임 시작 전: 좌석 번호, 게임 시작 후: VP */}
                     <text x="50" y={playerState ? 53 : 56} textAnchor="middle" fill={canSelect ? '#facc15' : 'white'} fontSize={playerState ? 12 : 18} fontWeight="bold">
-                      {playerState ? `${playerState.victoryPoints}vp` : seat.seatNo}
+                      {playerState ? `${(isMyOwnSeat && previewPlayerState?.victoryPoints != null) ? previewPlayerState.victoryPoints : playerState.victoryPoints}vp` : seat.seatNo}
                     </text>
                   </g>
                 </svg>
@@ -462,18 +478,32 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                 const pid = seat.playerId?.toString() ?? '';
                 const ownedTiles = techTileData
                   ? [
-                      ...techTileData.basicTiles.filter(t => (t.ownerPlayerIds ?? []).some(id => id === pid)),
+                      ...techTileData.basicTiles.filter(t => (t.ownerPlayerIds ?? []).some(id => id === pid) && !(t.coveredByMap ?? {})[pid]),
                       ...techTileData.advancedTiles.filter(t => t.takenByPlayerId === pid),
                     ].map(t => t.tileCode)
                   : [];
                 const myArtifactCodes = gameArtifacts
                   .filter(a => a.acquiredByPlayerId === seat.playerId)
                   .map(a => a.artifactCode);
+                // pending 인공물도 수입 프리뷰에 포함
+                if (isMyOwnSeat) {
+                  for (const act of turnState.pendingActions) {
+                    if (act.type === 'FLEET_SHIP_ACTION' && (act.payload as any).actionCode === 'TWILIGHT_ARTIFACT' && (act.payload as any).artifactCode) {
+                      myArtifactCodes.push((act.payload as any).artifactCode);
+                    }
+                  }
+                }
                 const effectivePs = (isMyOwnSeat && previewPlayerState) ? previewPlayerState : playerState;
                 const income = effectivePs
                   ? calcIncome(effectivePs, seat.raceCode ?? null, boosterCode, economyTrackOption ?? null, ownedTiles, myArtifactCodes)
                   : null;
-                const showIncome = gamePhase === 'PLAYING' && !!income;
+                const hasPassed = passedSeatNos.includes(seat.seatNo);
+                // 패스 전: 부스터 수입 제외한 기본 수입만, 패스 후: 부스터 포함 전체 수입
+                const incomeWithoutBooster = effectivePs
+                  ? calcIncome(effectivePs, seat.raceCode ?? null, null, economyTrackOption ?? null, ownedTiles, myArtifactCodes)
+                  : null;
+                const displayIncome = hasPassed ? income : incomeWithoutBooster;
+                const showIncome = gamePhase === 'PLAYING' && !!displayIncome;
 
                 // 하쉬할라 PI: 자원 클릭으로 크레딧 변환 가능 여부
                 const isHadschPi = seat.raceCode === 'HADSCH_HALLAS' && playerState && playerState.stockPlanetaryInstitute === 0;
@@ -513,7 +543,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                     {/* 이름 + 타이머 */}
                     <div className="mb-0.5 truncate flex items-center gap-1" style={{ fontSize: '0.72vw' }}>
                       <span style={{ color: planetColor }}>{seat.raceNameKo}</span>
-                      {seat.nickname && <span className="text-gray-300"> {seat.nickname}</span>}
+                      {seat.nickname && <span className={isMyOwnSeat ? 'text-lime-400' : 'text-gray-300'}> {seat.nickname}</span>}
                       {isMyOwnSeat && <span className="text-yellow-400"> (나)</span>}
                       {(() => {
                         const passIdx = passedSeatNos.indexOf(seat.seatNo);
@@ -534,27 +564,31 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         <PlayerTimer
                           baseSeconds={playerState.usedTimeSeconds ?? 0}
                           turnStartedAt={playerState.turnStartedAt}
-                          isActive={(currentTurnSeatNo === seat.seatNo || specialPhaseSeatNo === seat.seatNo) && gamePhase !== 'FINISHED'}
+                          isActive={gamePhase !== 'FINISHED' && (
+                            leechBatch && leechBatch.deciderIds?.length > 0
+                              ? isLeechDecider
+                              : (currentTurnSeatNo === seat.seatNo || specialPhaseSeatNo === seat.seatNo)
+                          )}
                         />
                       )}
                     </div>
 
                     {/* 행1: 돈 광 지식 QIC 파순 토추 */}
                     <div className="flex flex-wrap gap-x-3 gap-y-0">
-                      <ResCell icon={creditImg}    value={resources.credit}    inc={income?.credit}    incColor="text-yellow-300" />
-                      <ResCell icon={oreImg}       value={resources.ore}       inc={income?.ore}       incColor="text-orange-300"
+                      <ResCell icon={creditImg}    value={resources.credit}    inc={displayIncome?.credit}    incColor="text-yellow-300" />
+                      <ResCell icon={oreImg}       value={resources.ore}       inc={displayIncome?.ore}       incColor="text-orange-300"
                         convertCode="HADSCH_HALLAS_3C_ORE" convertCost={3} />
-                      <ResCell icon={knowledgeImg} value={resources.knowledge} inc={income?.knowledge} incColor="text-blue-300"
+                      <ResCell icon={knowledgeImg} value={resources.knowledge} inc={displayIncome?.knowledge} incColor="text-blue-300"
                         convertCode="HADSCH_HALLAS_4C_KNOWLEDGE" convertCost={4} />
-                      <ResCell icon={qicImg}       value={resources.qic}       inc={income?.qic}       incColor="text-cyan-300"
+                      <ResCell icon={qicImg}       value={resources.qic}       inc={displayIncome?.qic}       incColor="text-cyan-300"
                         convertCode="HADSCH_HALLAS_4C_QIC" convertCost={4} />
                       <div className="flex items-center gap-0.5">
                         <img src={powerImg} style={{ width: '1.1vw', height: '1.1vw', flexShrink: 0 }} />
-                        <span className="text-purple-300 font-bold" style={{ fontSize: '0.78vw' }}>{income ? income.powerCharge : 0}↑</span>
+                        <span className="text-purple-300 font-bold" style={{ fontSize: '0.78vw' }}>{displayIncome ? displayIncome.powerCharge : 0}↑</span>
                       </div>
                       <div className="flex items-center gap-0.5">
                         <img src={powerImg} style={{ width: '1.1vw', height: '1.1vw', flexShrink: 0 }} />
-                        <span className="text-pink-300 font-bold" style={{ fontSize: '0.78vw' }}>+{income ? income.powerToken : 0}</span>
+                        <span className="text-pink-300 font-bold" style={{ fontSize: '0.78vw' }}>+{displayIncome ? displayIncome.powerToken : 0}</span>
                       </div>
                     </div>
                     {/* 행2: 건물 재고 쭉 */}
@@ -593,7 +627,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         <div className="flex items-center gap-0.5 pl-0.5">
                           {['#dc2626','#38bdf8','#22c55e','#a855f7','#ea580c','#3b82f6'].map((c, i) => (
                             <div key={i} className="rounded-full flex items-center justify-center font-bold border"
-                              style={{ width: '1.1vw', height: '1.1vw', fontSize: '0.65vw', backgroundColor: '#1a1a2e', borderColor: c, color: c }}>
+                              style={{ width: '1.375vw', height: '1.375vw', fontSize: '0.81vw', backgroundColor: '#1a1a2e', borderColor: c, color: c }}>
                               {techTracks[i]}
                             </div>
                           ))}
@@ -626,21 +660,21 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         });
                       };
 
-                      const AbilityBtn = ({ label, code, disabled, title, extra }: {
+                      const AbilityBtn = ({ label, code, disabled, title, extra, conditionUnmet }: {
                         label: React.ReactNode; code: string; disabled: boolean; title: string;
                         extra?: { trackCode?: string; hexQ?: number; hexR?: number };
+                        conditionUnmet?: boolean; // 미사용이지만 자원/조건 부족
                       }) => {
                         const isDisabled = !canUseAbility || disabled || abilityLoading || hasPendingAction;
+                        const colorClass = used
+                          ? 'border-red-500 text-red-400 opacity-60'
+                          : 'border-green-500 text-green-300 hover:bg-green-500/20';
                         return (
                           <button
                             onClick={() => !isDisabled && callAbility(code, extra)}
                             disabled={isDisabled}
                             title={title}
-                            className={`px-1.5 py-0.5 rounded font-bold border-2 transition-colors whitespace-nowrap
-                              ${used
-                                ? 'border-red-500 text-red-400 opacity-60'
-                                : 'border-green-500 text-green-300 hover:bg-green-500/20'
-                              }`}
+                            className={`px-1.5 py-0.5 rounded font-bold border-2 transition-colors whitespace-nowrap ${colorClass}`}
                           >
                             {label}
                           </button>
@@ -676,11 +710,15 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                           >능력-트랙↑</button>
                         );
                       } else if (factionCode === 'SPACE_GIANTS') {
+                        const sgNoMine = (playerState.stockMine ?? 0) <= 0;
+                        const sgNoOre = (playerState.credit ?? 0) < 2 || (playerState.ore ?? 0) < 1;
                         abilities.push(<AbilityBtn key="sg" label={<>능력-<img src={terraformImg} alt="테라포밍" className="inline-block w-3 h-3 align-middle mx-0.5"/>2</>} code="SPACE_GIANTS_TERRAFORM_2"
-                          disabled={used} title="2단계 테라포밍 후 광산 건설 (라운드당 1회, 액션)" />);
+                          disabled={used} conditionUnmet={!used && (sgNoMine || sgNoOre)} title="2단계 테라포밍 후 광산 건설 (라운드당 1회, 액션)" />);
                       } else if (factionCode === 'GLEENS') {
+                        const glNoMine = (playerState.stockMine ?? 0) <= 0;
+                        const glNoOre = (playerState.credit ?? 0) < 2 || (playerState.ore ?? 0) < 1;
                         abilities.push(<AbilityBtn key="gl" label={<>능력-<img src={distanceImg} alt="거리" className="inline-block w-3 h-3 align-middle mx-0.5"/>2</>} code="GLEENS_JUMP"
-                          disabled={used} title="2거리 이내 광산 건설 (라운드당 1회, 액션)" />);
+                          disabled={used} conditionUnmet={!used && (glNoMine || glNoOre)} title="2거리 이내 광산 건설 (라운드당 1회, 액션)" />);
                       }
 
                       // PI 능력
@@ -689,6 +727,11 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                           // 파이락 PI: 선언형 - pending 추가 후 맵에서 연구소 선택 → 트랙 선택
                           const firakDisabled = !canUseAbility || used || hasPendingAction;
                           const hasRL = playerState.stockResearchLab < 3; // 연구소 1개 이상 건설됨
+                          const firakColorClass = used
+                            ? 'border-red-500 text-red-400 opacity-60'
+                            : !hasRL
+                              ? 'border-yellow-500 text-yellow-400 opacity-70'
+                              : 'border-green-500 text-green-300 hover:bg-green-500/20';
                           abilities.push(
                             <button key="firaks"
                               onClick={() => {
@@ -700,11 +743,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                               }}
                               disabled={firakDisabled || !hasRL}
                               title="연구소→교역소 + 트랙 전진 (라운드당 1회)"
-                              className={`px-1.5 py-0.5 rounded font-bold border-2 transition-colors whitespace-nowrap
-                                ${used
-                                  ? 'border-red-500 text-red-400 opacity-60'
-                                  : 'border-green-500 text-green-300 hover:bg-green-500/20'
-                                }`}
+                              className={`px-1.5 py-0.5 rounded font-bold border-2 transition-colors whitespace-nowrap ${firakColorClass}`}
                             >능력-Down</button>
                           );
                         } else if (factionCode === 'AMBAS') {
@@ -718,8 +757,9 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                           // 네블라 PI: 프리 액션 교환창에서 처리 (별도 버튼 불필요)
                         } else if (factionCode === 'MOWEIDS') {
                           // 모웨이드 PI: 건물 선택 → 링 씌우기 (pendingAction으로 처리)
+                          const mowNoPower = (playerState.powerBowl3 ?? 0) < 2;
                           abilities.push(<AbilityBtn key="mow-ring" label="능력-Ring(2pw)" code="MOWEIDS_RING"
-                            disabled={used} title="본인 건물 선택하여 링 씌우기 (파워값 +2, 라운드당 1회)" />);
+                            disabled={used} conditionUnmet={!used && mowNoPower} title="본인 건물 선택하여 링 씌우기 (파워값 +2, 라운드당 1회)" />);
                         } else if (factionCode === 'TINKEROIDS') {
                           // 팅커로이드 PI: 현재 라운드 선택된 액션 사용 버튼
                           const tinkAction = (playerState as any).tinkeroidsCurrentAction as string | null;
@@ -822,45 +862,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         );
                       }
 
-                      // abilities에 라운드 부스터 액션 추가
-                      const seatBooster = boosters.find(b => b.pickedBySeatNo === seat.seatNo);
-                      const boosterDef = seatBooster ? BOOSTER_ACTION_DEFS[seatBooster.boosterCode] : null;
-                      if (seatBooster && boosterDef) {
-                        const boosterUsed = playerState.boosterActionUsed;
-                        const noGaiaformer = boosterDef.requiresGaiaformer && (playerState.stockGaiaformer ?? 0) <= 0;
-                        const canUseBst = canUseAbility && !boosterUsed && !noGaiaformer && !hasPendingAction;
-                        const bIcon = (src: string, alt: string) => <img src={src} alt={alt} className="inline-block w-3 h-3 align-middle mx-0.5" />;
-                        const boosterLabel: Record<string, React.ReactNode> = {
-                          BOOSTER_12: <>라운드-<ColorizedBuilding src={pomerImg} color={planetColor} size={12} bright /></>,
-                          BOOSTER_13: <>라운드-{bIcon(distanceImg, '거리')}3</>,
-                          BOOSTER_14: <>라운드-{bIcon(terraformImg, '테라포밍')}1</>,
-                        };
-                        abilities.push(
-                          <button key="booster-action"
-                            onClick={() => {
-                              if (!canUseBst) return;
-                              addPendingAction({
-                                id: `action-${Date.now()}-${Math.random()}`,
-                                type: 'BOOSTER_ACTION',
-                                timestamp: Date.now(),
-                                payload: {
-                                  boosterCode: seatBooster.boosterCode,
-                                  actionType: boosterDef.actionType,
-                                  terraformDiscount: boosterDef.terraformDiscount,
-                                  navBonus: boosterDef.navBonus,
-                                },
-                              } as BoosterAction);
-                            }}
-                            disabled={!canUseBst}
-                            title={boosterDef.label}
-                            className={`px-1.5 py-0.5 rounded font-bold border-2 transition-colors whitespace-nowrap
-                              ${boosterUsed
-                                ? 'border-red-500 text-red-400 opacity-60'
-                                : 'border-green-500 text-green-300 hover:bg-green-500/20'
-                              }`}
-                          >{boosterLabel[seatBooster.boosterCode] ?? boosterDef.label}</button>
-                        );
-                      }
+                      // 라운드 부스터 액션: 호버 팝업에서 처리 (여기서는 제거)
 
                       const validButtons = abilities.filter(Boolean);
                       if (validButtons.length === 0) return null;
@@ -877,7 +879,70 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
               })()}
             </div>
 
-            {/* 하단: 획득한 기술 타일 (2열 랩) */}
+            {/* 호버 시 오른쪽 확장: 기술타일 / 인공물 / 연방토큰 */}
+            {hoveredSeatNo === seat.seatNo && (() => {
+              const seatEl = document.querySelector(`[data-seat="${seat.seatNo}"]`);
+              const rect = seatEl?.getBoundingClientRect();
+              const left = rect ? rect.right + 4 : 0;
+              const seatTop = rect ? rect.top : 0;
+              const seatBottom = rect ? rect.bottom : 0;
+              const seatMid = (seatTop + seatBottom) / 2;
+              return createPortal(<div
+                ref={(el) => {
+                  if (el) {
+                    const ph = el.offsetHeight;
+                    let t = seatMid - ph / 2;
+                    t = Math.max(4, Math.min(t, window.innerHeight - ph - 4));
+                    el.style.top = t + 'px';
+                    el.style.left = left + 'px';
+                  }
+                }}
+                onMouseEnter={() => setHoveredSeatNo(seat.seatNo)}
+                onMouseLeave={() => setHoveredSeatNo(null)}
+                className="fixed z-[9999] bg-gray-900/95 border border-gray-600 rounded-lg shadow-xl flex" style={{ top: seatTop, left }}>
+
+            {/* 왼쪽: 라운드 부스터 (클릭으로 부스터 액션 사용) */}
+            {(() => {
+              const myBooster = boosters.find(b => b.pickedBySeatNo === seat.seatNo);
+              const boosterImg = myBooster ? BOOSTER_IMAGE_MAP[myBooster.boosterCode] : null;
+              if (!boosterImg) return null;
+              const boosterDef = myBooster ? BOOSTER_ACTION_DEFS[myBooster.boosterCode] : null;
+              const ps = getPlayerState(seat.seatNo);
+              const boosterUsed = ps?.boosterActionUsed ?? false;
+              const hasPending = turnState.pendingActions.length > 0;
+              const canClick = isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && boosterDef && !boosterUsed && !hasPending;
+              const handleBoosterClick = canClick ? () => {
+                addPendingAction({
+                  id: `action-${Date.now()}-${Math.random()}`,
+                  type: 'BOOSTER_ACTION',
+                  timestamp: Date.now(),
+                  payload: {
+                    boosterCode: myBooster!.boosterCode,
+                    actionType: boosterDef!.actionType,
+                    terraformDiscount: boosterDef!.terraformDiscount,
+                    navBonus: boosterDef!.navBonus,
+                  },
+                } as BoosterAction);
+                setHoveredSeatNo(null);
+              } : undefined;
+              return (
+                <div className={`relative flex-shrink-0 border-r border-gray-600 p-1 flex items-center ${canClick ? 'cursor-pointer hover:bg-green-900/30' : ''}`}
+                  onClick={handleBoosterClick}
+                  title={boosterDef ? (canClick ? '클릭하여 부스터 액션 사용' : boosterUsed ? '이미 사용됨' : boosterDef.label) : ''}>
+                  <img src={boosterImg} alt={myBooster!.boosterCode} style={{ height: '9vw' }} className="w-auto object-contain" draggable={false} />
+                  {boosterUsed && (
+                    <div className="absolute top-0 left-0 right-0 flex items-center justify-center bg-black/50 rounded-t transition-opacity hover:opacity-0" style={{ height: '45%' }}>
+                      <img src={closeImg} style={{ width: '2.5vw', height: '2.5vw' }} className="object-contain" draggable={false} />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* 오른쪽: 기술타일 / 인공물 / 연방토큰 */}
+            <div className="p-2 flex flex-col gap-1 min-w-[140px]">
+
+            {/* 기술 타일 */}
             {(() => {
               if (!techTileData) return null;
               const myPid = playerState?.playerId?.toString() ?? '';
@@ -921,13 +986,18 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                     const imgSrc = tile.isAdv
                       ? ADV_TECH_TILE_IMAGE_MAP[tile.tileCode]
                       : TECH_TILE_IMAGE_MAP[tile.tileCode];
-                    const isActionTile = tile.abilityType === 'ACTION';
+                    // 고급 타일이 덮고 있으면 고급 타일의 abilityType/actionUsed 사용
+                    const coveredByCode = (tile as any).coveredByCode as string | null;
+                    const coveringAdvTile = coveredByCode ? techTileData.advancedTiles.find(t => t.tileCode === coveredByCode) : null;
+                    const effectiveTile = coveringAdvTile ?? tile;
+                    const effectiveTileCode = coveringAdvTile ? coveringAdvTile.tileCode : tile.tileCode;
+                    const isActionTile = effectiveTile.abilityType === 'ACTION';
                     // pending에 이 타일 사용 중이면 already used로 취급
-                    const isPendingUsed = turnState.pendingActions.some(
-                      a => a.type === 'TECH_TILE_ACTION' && a.payload.tileCode === tile.tileCode
+                    const isPendingUsed = isMyOwnSeat && turnState.pendingActions.some(
+                      a => a.type === 'TECH_TILE_ACTION' && a.payload.tileCode === effectiveTileCode
                     );
                     const myPidStr = seat.playerId?.toString() ?? '';
-                    const isMyActionUsed = tile.actionUsedByPlayerIds?.includes(myPidStr) ?? tile.isActionUsed;
+                    const isMyActionUsed = effectiveTile.actionUsedByPlayerIds?.includes(myPidStr) ?? effectiveTile.isActionUsed;
                     const isUsed = isMyActionUsed || isPendingUsed;
                     const canUse = isActionTile && !isUsed && isMyOwnSeat && isMyTurn && gamePhase === 'PLAYING' && !hasPendingAction;
                     // 커버 프리뷰: 이 타일이 고급 타일에 의해 덮일 예정인지
@@ -947,7 +1017,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         id: `action-${Date.now()}`,
                         type: 'TECH_TILE_ACTION',
                         timestamp: Date.now(),
-                        payload: { tileCode: tile.tileCode, description: tile.description },
+                        payload: { tileCode: effectiveTileCode, description: effectiveTile.description },
                       };
                       addPendingAction(action);
                     };
@@ -960,7 +1030,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         title={isCoverTarget ? `[덮힘 예정] ${tile.description}` : canCover ? `클릭하여 덮을 타일 선택` : isActionTile ? `[액션] ${tile.description}${canUse ? ' — 클릭하여 사용' : isUsed ? ' (사용됨)' : ''}` : tile.description}
                       >
                         {imgSrc ? (
-                          <img src={imgSrc} alt={tile.tileCode} style={{ height: '2.8vw' }} className="w-auto object-contain" draggable={false} />
+                          <img src={imgSrc} alt={tile.tileCode} style={{ height: '3.5vw' }} className="w-auto object-contain" draggable={false} />
                         ) : (
                           <span className="text-[7px] text-gray-300 px-1">{tile.tileCode}</span>
                         )}
@@ -969,7 +1039,7 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                           const advImg = ADV_TECH_TILE_IMAGE_MAP[(tile as any).coveredByCode];
                           return advImg ? (
                             <div className="absolute inset-0 flex items-center justify-center transition-opacity hover:opacity-0">
-                              <img src={advImg} alt={(tile as any).coveredByCode} style={{ height: '2.8vw' }} className="w-auto object-contain" draggable={false} />
+                              <img src={advImg} alt={(tile as any).coveredByCode} style={{ height: '3.5vw' }} className="w-auto object-contain" draggable={false} />
                             </div>
                           ) : null;
                         })()}
@@ -983,6 +1053,30 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                         {/* 미사용 ACTION 타일: A 뱃지 */}
                         {isActionTile && !isUsed && !isCoverTarget && (
                           <div className="absolute top-0 right-0 text-[7px] leading-none bg-green-700 text-white rounded-bl px-0.5">A</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* 획득한 인공물 */}
+            {(() => {
+              const myArtifacts = seat.playerId ? gameArtifacts.filter(a => a.acquiredByPlayerId === seat.playerId) : [];
+              if (myArtifacts.length === 0) return null;
+              return (
+                <div className="flex flex-wrap gap-1 px-2 pb-1">
+                  {myArtifacts.map((art, idx) => {
+                    const imgSrc = ARTIFACT_IMAGE_MAP[art.artifactCode];
+                    return (
+                      <div key={`art-${idx}`} className="relative" title={art.artifactCode}>
+                        {imgSrc ? (
+                          <img src={imgSrc} alt={art.artifactCode}
+                            style={{ height: '3vw' }} className="w-auto object-contain"
+                            draggable={false} />
+                        ) : (
+                          <span className="text-[7px] text-purple-300 px-1">{art.artifactCode}</span>
                         )}
                       </div>
                     );
@@ -1036,32 +1130,79 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
                   GAIA_FORMING: 'techGaia', ECONOMY: 'techEconomy', SCIENCE: 'techScience',
                 };
                 const origState2 = playerStates.find(p => p.seatNo === seat.seatNo);
-                const has5Adv = turnState.pendingActions.some(a => {
-                  if (a.type === 'ADVANCE_TECH') {
-                    const f = TRACK_FIELDS2[a.payload.trackCode];
-                    return f && (origState2 as any)?.[f] === 4;
+                const has5AdvTerra = turnState.pendingActions.some(a => {
+                  if (a.type === 'ADVANCE_TECH' && a.payload.trackCode === 'TERRA_FORMING') {
+                    return (origState2 as any)?.techTerraforming === 4;
                   }
                   return false;
                 });
                 const tentTrack2 = useGameStore.getState().tentativeTechTrackCode;
-                const hasTent5 = tentTrack2 && TRACK_FIELDS2[tentTrack2] && (origState2 as any)?.[TRACK_FIELDS2[tentTrack2]] === 4;
-                if (has5Adv || hasTent5) {
+                const hasTent5Terra = tentTrack2 === 'TERRA_FORMING' && (origState2 as any)?.techTerraforming === 4;
+                if (has5AdvTerra || hasTent5Terra) {
                   const tfc = useGameStore.getState().terraFedTileCode;
                   if (tfc) myFedTokens.push({ tileCode: tfc, used: false });
                 }
               }
               if (myFedTokens.length === 0) return null;
+              const selectingFedToken = isMyOwnSeat && fleetShipMode?.needsFederationToken;
               return (
                 <div className="flex flex-wrap gap-1 px-2 pb-1">
+                  {selectingFedToken && (
+                    <div className="w-full text-[8px] text-yellow-300 mb-0.5">연방 토큰을 선택하세요</div>
+                  )}
                   {myFedTokens.map((token, idx) => {
                     const imgSrc = FEDERATION_TOKEN_IMAGE_MAP[token.tileCode];
-                    const borderColor = token.used ? '#ef4444' : '#047857';
-                    const filterId = `fed-border-${idx}-${token.used ? 'r' : 'g'}`;
+                    const isSpecialMine = token.tileCode === 'FED_EXP_TILE_5' || token.tileCode === 'FED_EXP_TILE_7';
+                    const isTechTile = token.tileCode === 'FED_EXP_TILE_1';
+                    const canSelect = selectingFedToken;
+                    const borderColor = canSelect ? '#eab308' : token.used ? '#ef4444' : '#047857';
+                    const filterId = `fed-border-${idx}-${canSelect ? 'y' : token.used ? 'r' : 'g'}`;
+                    const handleFedTokenClick = canSelect ? () => {
+                      const reward = FEDERATION_TILE_REWARD[token.tileCode] ?? {};
+                      // gain 구성: 특수 토큰은 별도 처리
+                      const gain = isSpecialMine || isTechTile ? undefined : {
+                        ...(reward.credit && { credit: reward.credit }),
+                        ...(reward.ore && { ore: reward.ore }),
+                        ...(reward.knowledge && { knowledge: reward.knowledge }),
+                        ...(reward.qic && { qic: reward.qic }),
+                        ...(reward.vp && { vp: reward.vp }),
+                        ...(reward.powerToken && { powerToken: reward.powerToken }),
+                        ...(reward.powerToBowl3 && { powerToBowl3: reward.powerToBowl3 }),
+                      };
+                      setTentativeFedTokenCode(token.tileCode);
+                      const fsmActionCode = fleetShipMode!.actionCode ?? 'TWILIGHT_FED';
+                      addPendingAction({
+                        id: `twilight-fed-${Date.now()}`,
+                        type: 'FLEET_SHIP_ACTION',
+                        timestamp: Date.now(),
+                        payload: {
+                          fleetName: 'TWILIGHT',
+                          actionCode: fsmActionCode,
+                          cost: fleetShipMode!.cost,
+                          isImmediate: !isSpecialMine,
+                          gain,
+                          federationTileCode: token.tileCode,
+                          ...((fleetShipMode as any)?.artifactCode ? { artifactCode: (fleetShipMode as any).artifactCode } : {}),
+                        },
+                      });
+                      setFleetShipMode(null);
+                      // 3삽 광산 / 무한거리 광산: 광산 배치 모드 진입
+                      if (isSpecialMine) {
+                        setFederationMode({
+                          selectedBuildings: [],
+                          placedTokens: [],
+                          phase: 'PLACE_SPECIAL_MINE',
+                          specialTileCode: token.tileCode,
+                        });
+                      }
+                    } : undefined;
                     return (
-                      <div key={`fed-${idx}`} className="relative" title={token.tileCode}
-                        style={{ opacity: token.used ? 0.6 : 1 }}>
+                      <div key={`fed-${idx}`} className={`relative ${canSelect ? 'cursor-pointer hover:brightness-125' : ''}`}
+                        title={canSelect ? `클릭하여 선택: ${token.tileCode}` : token.tileCode}
+                        style={{ opacity: token.used && !canSelect ? 0.6 : 1 }}
+                        onClick={handleFedTokenClick}>
                         {imgSrc ? (
-                          <svg style={{ height: '2.8vw', width: 'auto', display: 'inline-block' }} viewBox="-25 -25 150 170">
+                          <svg style={{ height: '3.5vw', width: 'auto', display: 'inline-block' }} viewBox="-25 -25 150 170">
                             <defs>
                               <filter id={filterId} x="-30%" y="-30%" width="160%" height="160%">
                                 <feMorphology in="SourceAlpha" operator="dilate" radius="12" result="dilated" />
@@ -1082,29 +1223,8 @@ export default function SeatSelector({ seats, mySeatNo, playerId, currentTurnSea
               );
             })()}
 
-            {/* 획득한 인공물 */}
-            {(() => {
-              const myArtifacts = seat.playerId ? gameArtifacts.filter(a => a.acquiredByPlayerId === seat.playerId) : [];
-              if (myArtifacts.length === 0) return null;
-              return (
-                <div className="flex flex-wrap gap-1 px-2 pb-1">
-                  {myArtifacts.map((art, idx) => {
-                    const imgSrc = ARTIFACT_IMAGE_MAP[art.artifactCode];
-                    return (
-                      <div key={`art-${idx}`} className="relative" title={art.artifactCode}>
-                        {imgSrc ? (
-                          <img src={imgSrc} alt={art.artifactCode}
-                            style={{ height: '2.2vw' }} className="w-auto object-contain"
-                            draggable={false} />
-                        ) : (
-                          <span className="text-[7px] text-purple-300 px-1">{art.artifactCode}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            </div>{/* 오른쪽 컨텐츠 끝 */}
+            </div>, document.body)})()}{/* 호버 패널 끝 */}
 
           </div>
         );

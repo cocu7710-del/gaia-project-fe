@@ -19,6 +19,7 @@ export interface FleetShipMode {
   needsTsToRl?: boolean;
   needsTrack?: boolean;
   needsTile?: boolean;
+  needsFederationToken?: boolean;
 }
 
 export interface PendingAnalysis {
@@ -168,6 +169,11 @@ function buildBannerMessage(
     return '당신의 차례입니다! 광산을 배치하세요.';
   }
 
+  // 연방 토큰 선택 대기 (TWILIGHT_FED)
+  if (fleetShipMode?.needsFederationToken) {
+    return '함대 액션(연방 토큰 재사용) — 플레이어 판에서 연방 토큰을 선택하세요.';
+  }
+
   // 헥스 선택 대기 (함대 업그레이드/가이아포머/소행성)
   if (analysis.needsFleetHex) {
     switch (analysis.fleetHexType) {
@@ -211,11 +217,17 @@ function buildBannerMessage(
   // 후속 행동 대기 (테라포밍/항법/가이아포머/종족 능력)
   if (analysis.needsFollowUp) {
     if (analysis.isGaiaformerPlace) return '가이아포머를 배치할 행성을 선택하세요.';
-    // 연방 타일 특수 액션 메시지
-    const fedSpecial = pendingActions.find(a => a.type === 'FORM_FEDERATION'
-      && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'));
-    if (fedSpecial?.payload.tileCode === 'FED_EXP_TILE_5') return '(3테라포밍, 광산비용 무료) 광산을 건설해주세요.';
-    if (fedSpecial?.payload.tileCode === 'FED_EXP_TILE_7') return '(거리 제한 없음, 광산비용 무료) 광산을 건설해주세요.';
+    // 연방 타일 특수 액션 메시지 (FORM_FEDERATION 또는 TWILIGHT_FED)
+    const fedSpecial = pendingActions.find(a =>
+      (a.type === 'FORM_FEDERATION' && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'))
+      || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_FED'
+          && ((a.payload as any).federationTileCode === 'FED_EXP_TILE_5' || (a.payload as any).federationTileCode === 'FED_EXP_TILE_7'))
+    );
+    const fedSpecialCode = fedSpecial?.type === 'FORM_FEDERATION'
+      ? fedSpecial.payload.tileCode
+      : (fedSpecial?.payload as any)?.federationTileCode;
+    if (fedSpecialCode === 'FED_EXP_TILE_5') return '(3테라포밍, 광산비용 무료) 광산을 건설해주세요.';
+    if (fedSpecialCode === 'FED_EXP_TILE_7') return '(거리 제한 없음, 광산비용 무료) 광산을 건설해주세요.';
     if (analysis.terraformDiscount > 0) return `테라포밍 ${analysis.terraformDiscount}단계 할인 적용 — 행동을 선택하세요.`;
     if (analysis.navBonus > 0) return `항법 +${analysis.navBonus}거리 적용 — 행동을 선택하세요.`;
 
@@ -270,6 +282,13 @@ function buildBannerMessage(
         if (code === 'TWILIGHT_UPGRADE') return '교역소를 연구소로 업그레이드 하시겠습니까?';
         if (code === 'TWILIGHT_ARTIFACT') return '인공물 타일을 획득하시겠습니까? (파워 6 소각)';
         if (code === 'ECLIPSE_TECH') return '진보할 지식트랙을 선택해 주세요.';
+        if (code === 'TWILIGHT_FED') {
+          const fedTile = (first.payload as any)?.federationTileCode;
+          if (fedTile === 'FED_EXP_TILE_1') return '기술 타일을 획득할 트랙을 선택해 주세요.';
+          if (fedTile === 'FED_EXP_TILE_5') return '(3테라포밍, 광산비용 무료) 광산을 건설해주세요.';
+          if (fedTile === 'FED_EXP_TILE_7') return '(거리 제한 없음, 광산비용 무료) 광산을 건설해주세요.';
+          return '연방 토큰 보상을 획득하시겠습니까?';
+        }
         return `함대 액션을 진행하시겠습니까?`;
       }
       case 'FACTION_ABILITY': {
@@ -304,9 +323,13 @@ function buildBannerMessage(
  */
 export function hasTechTileGrantingPending(pendingActions: GameAction[]): boolean {
   return pendingActions.some(a =>
-    a.type === 'UPGRADE_BUILDING'
+    (a.type === 'UPGRADE_BUILDING' &&
+      (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'
+        || a.payload.toType === 'ACADEMY_KNOWLEDGE' || a.payload.toType === 'ACADEMY_QIC'
+        || (a.payload.toType === 'PLANETARY_INSTITUTE' && a.payload.factionCode === 'SPACE_GIANTS')))
     || (a.type === 'FORM_FEDERATION' && a.payload.tileCode === 'FED_EXP_TILE_1')
     || (a.type === 'FLEET_SHIP_ACTION' && ['REBELLION_TECH', 'TWILIGHT_UPGRADE'].includes((a.payload as any).actionCode))
+    || (a.type === 'FLEET_SHIP_ACTION' && ((a.payload as any).actionCode === 'TWILIGHT_FED' || (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT') && (a.payload as any).federationTileCode === 'FED_EXP_TILE_1')
   );
 }
 
@@ -321,8 +344,8 @@ export function findTechTilePickerTrigger(pendingActions: GameAction[]): GameAct
         || (a.payload.toType === 'PLANETARY_INSTITUTE' && a.payload.factionCode === 'SPACE_GIANTS')))
     || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH')
     || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_UPGRADE' && (a.payload as any).hexQ != null)
-    || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'ECLIPSE_TECH')
-    || a.type === 'FORM_FEDERATION'
+    || (a.type === 'FLEET_SHIP_ACTION' && ((a.payload as any).actionCode === 'TWILIGHT_FED' || (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT') && (a.payload as any).federationTileCode === 'FED_EXP_TILE_1')
+    || (a.type === 'FORM_FEDERATION' && a.payload.tileCode === 'FED_EXP_TILE_1')
   );
 }
 
@@ -337,7 +360,8 @@ export function hasPendingTechPick(pendingActions: GameAction[]): boolean {
         || (a.payload.toType === 'PLANETARY_INSTITUTE' && a.payload.factionCode === 'SPACE_GIANTS')))
     || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode)
     || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_UPGRADE' && (a.payload as any).hexQ != null)
-    || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'ECLIPSE_TECH' && !(a.payload as any).trackCode)
+    || (a.type === 'FLEET_SHIP_ACTION' && ((a.payload as any).actionCode === 'TWILIGHT_FED' || (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT') && (a.payload as any).federationTileCode === 'FED_EXP_TILE_1')
+    || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT' && (a.payload as any).federationTileCode === 'FED_EXP_TILE_1')
     || (a.type === 'FORM_FEDERATION' && a.payload.tileCode === 'FED_EXP_TILE_1')
   );
 }
@@ -347,7 +371,10 @@ export function hasPendingTechPick(pendingActions: GameAction[]): boolean {
  */
 export function hasFleetTechPending(pendingActions: GameAction[]): boolean {
   return pendingActions.some(a =>
-    a.type === 'FLEET_SHIP_ACTION' && ['REBELLION_TECH', 'TWILIGHT_UPGRADE', 'ECLIPSE_TECH'].includes((a.payload as any).actionCode)
+    a.type === 'FLEET_SHIP_ACTION' && (
+      ['REBELLION_TECH', 'TWILIGHT_UPGRADE'].includes((a.payload as any).actionCode)
+      || (((a.payload as any).actionCode === 'TWILIGHT_FED' || (a.payload as any).actionCode === 'TWILIGHT_ARTIFACT') && (a.payload as any).federationTileCode === 'FED_EXP_TILE_1')
+    )
   );
 }
 
@@ -383,10 +410,14 @@ export function hasBlockingOtherPending(
 
   const lostPlanetPending = pendingActions.some(a => a.type === 'PLACE_LOST_PLANET' && a.payload?.hexQ == null);
 
-  // 연방 특수 타일 (3삽/무한거리) 광산 대기
-  const fedSpecialMinePending = pendingActions.some(a => a.type === 'FORM_FEDERATION'
-    && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'))
-    && !pendingActions.some(a => a.type === 'PLACE_MINE');
+  // 연방 특수 타일 (3삽/무한거리) 광산 대기 (FORM_FEDERATION 또는 TWILIGHT_FED)
+  const fedSpecialMinePending = (
+    pendingActions.some(a => a.type === 'FORM_FEDERATION'
+      && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'))
+    || pendingActions.some(a => a.type === 'FLEET_SHIP_ACTION'
+      && (a.payload as any).actionCode === 'TWILIGHT_FED'
+      && ((a.payload as any).federationTileCode === 'FED_EXP_TILE_5' || (a.payload as any).federationTileCode === 'FED_EXP_TILE_7'))
+  ) && !pendingActions.some(a => a.type === 'PLACE_MINE');
 
   // 위 조건 중 하나라도 true이면 "해당 pending이 헥스 클릭을 허용"하므로 차단 안 함
   // 모두 false이면 "관련 없는 pending이 있으므로 차단"
@@ -417,11 +448,14 @@ export function calcMinePlacementModifiers(
   let terraformDiscount = calcTerraformDiscount(pendingActions);
   let navBonus = calcNavBonus(pendingActions);
 
-  // 연방 특수 타일: 3삽 or 무한거리
-  const fedSpecial = pendingActions.find(a => a.type === 'FORM_FEDERATION'
-    && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'));
+  // 연방 특수 타일: 3삽 or 무한거리 (FORM_FEDERATION 또는 TWILIGHT_FED)
+  const fedSpecial = pendingActions.find(a =>
+    (a.type === 'FORM_FEDERATION' && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'))
+    || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_FED'
+        && ((a.payload as any).federationTileCode === 'FED_EXP_TILE_5' || (a.payload as any).federationTileCode === 'FED_EXP_TILE_7'))
+  );
   const isFreeMine = !!fedSpecial;
-  const fedSpecialTileCode = fedSpecial?.payload.tileCode ?? null;
+  const fedSpecialTileCode = (fedSpecial?.type === 'FORM_FEDERATION' ? fedSpecial?.payload.tileCode : (fedSpecial?.payload as any)?.federationTileCode) ?? null;
   if (fedSpecialTileCode === 'FED_EXP_TILE_5') terraformDiscount = Math.max(terraformDiscount, 3);
   if (fedSpecialTileCode === 'FED_EXP_TILE_7') navBonus = 99;
 
@@ -499,21 +533,20 @@ export function analyzePending(
   // BASIC_EXP_TILE_3: 타일 선택 후 광산 배치, 이후 트랙 선택 (트랙은 나중에)
   const TERRAFORM_2_MINE_TILE_CODES = ['BASIC_EXP_TILE_3'];
   const isTerraform2TileSelected = tentativeTechTileCode != null && TERRAFORM_2_MINE_TILE_CODES.includes(tentativeTechTileCode);
-  // 헥스 선택이 진행 중이면 기술 타일/트랙 선택은 아직 불필요
+  // 고급 타일 선택됨 → 덮을 기본 타일 선택 필수 (트랙 선택보다 먼저)
+  const { tentativeCoverTileCode } = useGameStore.getState();
+  const isAdvTileSelected = tentativeTechTileCode != null && tentativeTechTileCode.startsWith('ADV_');
+  const needsCoverTile = !needsFleetHex && isAdvTileSelected && !tentativeCoverTileCode;
+
+  // 헥스 선택이 진행 중이거나 고급 타일 커버 대기 중이면 트랙 선택 불필요
   // BASIC_EXP_TILE_3는 타일만 선택해도 needsTechTile 해제 (트랙은 광산 후에 선택)
-  const needsTechTile = !needsFleetHex && techPickNeeded && (
+  const needsTechTile = !needsFleetHex && !needsCoverTile && techPickNeeded && (
     !tentativeTechTileCode || (!isTerraform2TileSelected && !tentativeTechTrackCode)
   );
   // BASIC_EXP_TILE_3: 광산(hasFollowUp) 배치 후 트랙 선택 필요
   const terraform2TrackNeeded = isTerraform2TileSelected && hasFollowUp && !tentativeTechTrackCode
     && hasTechTileGrantingPending(pendingActions);
-  const needsTrackSelect = !needsFleetHex && (eclipseTechPending || terraform2TrackNeeded);
-
-  // 고급 타일 선택됨 → 덮을 기본 타일 선택 필요
-  const { tentativeCoverTileCode } = useGameStore.getState();
-  const isAdvTileSelected = tentativeTechTileCode != null && tentativeTechTileCode.startsWith('ADV_');
-  const needsCoverTile = !needsFleetHex && !needsTechTile && !needsTrackSelect
-    && isAdvTileSelected && !tentativeCoverTileCode;
+  const needsTrackSelect = !needsFleetHex && !needsCoverTile && (eclipseTechPending || terraform2TrackNeeded);
 
   // 2삽 기술 타일 선택됨 → 광산 배치 필요 (PLACE_MINE pending 아직 없으면)
   const TERRAFORM_2_TILE_CODES = ['BASIC_EXP_TILE_3'];

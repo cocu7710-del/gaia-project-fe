@@ -33,7 +33,7 @@ export function buildConfirmPlan(
   const fleetShipAction = actions.find(a => a.type === 'FLEET_SHIP_ACTION') as FleetShipAction | undefined;
   const factionAbilityAction = actions.find(a => a.type === 'FACTION_ABILITY');
   const terraformDiscount = getTerraformDiscount(actions);
-  const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack, tentativeCoverTileCode: coverTile } = useGameStore.getState();
+  const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack, tentativeCoverTileCode: coverTile, tentativeFedTokenCode: fedTokenCode } = useGameStore.getState();
 
   // 후속 행동 (광산/우주선/가이아포머)
   const followUp = mineAction || fleetProbeAction || gaiaformerAction;
@@ -47,6 +47,7 @@ export function buildConfirmPlan(
         factionAbilityAction.payload.trackCode,
         factionAbilityAction.payload.hexQ,
         factionAbilityAction.payload.hexR,
+        (factionAbilityAction.payload as any).qicUsed,
       ),
       errorLabel: '종족 능력 실패',
     });
@@ -76,8 +77,11 @@ export function buildConfirmPlan(
 
   // 2c. 함대 split 액션 + 후속
   if (fleetShipAction && !fleetShipAction.payload.isImmediate && followUp) {
+    const splitFsa = fleetShipAction;
+    const splitFedTileCode = (splitFsa.payload as any).federationTileCode ?? undefined;
     steps.push({
-      api: () => roomApi.fleetShipAction(roomId, playerId, fleetShipAction.payload.actionCode),
+      api: () => roomApi.fleetShipAction(roomId, playerId, splitFsa.payload.actionCode,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, splitFedTileCode, (splitFsa.payload as any).useBrainstone ?? undefined),
       errorLabel: '함대 액션 실패',
     });
   }
@@ -97,14 +101,29 @@ export function buildConfirmPlan(
     && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'));
   const hasUpgradeOrFedMain = actions.some(a => a.type === 'UPGRADE_BUILDING' || a.type === 'FORM_FEDERATION');
   if (mineAction && !hasFedSpecialMine && !hasUpgradeOrFedMain) {
+    // 즉시 함대 액션(REBELLION_TECH 등) + 광산: 함대 액션 먼저 실행
+    if (fleetShipAction && fleetShipAction.payload.isImmediate) {
+      const fsa = fleetShipAction;
+      const isTileAction = fsa.payload.actionCode === 'REBELLION_TECH';
+      const fsaTileCode = isTileAction ? techTile ?? undefined : undefined;
+      const fsaTrackCode = isTileAction ? techTrack ?? undefined : undefined;
+      steps.push({
+        api: () => roomApi.fleetShipAction(roomId, playerId, fsa.payload.actionCode, fsa.payload.hexQ, fsa.payload.hexR, fsaTileCode, fsaTrackCode, isTileAction ? coverTile ?? undefined : undefined, undefined, true),
+        errorLabel: '함대 액션 실패',
+      });
+    }
     const qicUsed = mineAction.payload.cost?.qic ?? 0;
     const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
-    // 무료 광산: deferred 연방 특수 타일 또는 2삽 기술타일
     const isDeferredFedMine = boosterAction?.payload.boosterCode?.startsWith('DEFERRED_TERRAFORM_3')
       || boosterAction?.payload.boosterCode?.startsWith('DEFERRED_NO_RANGE');
-    const freeMine = !!isDeferredFedMine;
+    const isBasicExpTile3Mine = techTile === 'BASIC_EXP_TILE_3';
+    const twilightFedTileCode = (fleetShipAction?.payload as any)?.federationTileCode as string | undefined;
+    const isTwilightFed5Mine = twilightFedTileCode === 'FED_EXP_TILE_5';
+    const isTwilightFed7Mine = twilightFedTileCode === 'FED_EXP_TILE_7';
+    const freeMine = !!isDeferredFedMine || isBasicExpTile3Mine || isTwilightFed5Mine || isTwilightFed7Mine;
+    const effectiveTd = isBasicExpTile3Mine ? 2 : isTwilightFed5Mine ? 3 : terraformDiscount;
     steps.push({
-      api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount, freeMine),
+      api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, effectiveTd, freeMine),
       errorLabel: '광산 건설 실패',
     });
     return steps;
@@ -120,7 +139,8 @@ export function buildConfirmPlan(
   }
 
   if (gaiaformerAction) {
-    const isBoosterGaiaform = !!boosterAction;
+    // BOOSTER_12(포머 배치 부스터)만 즉시 가이아포밍
+    const isBoosterGaiaform = !!boosterAction && boosterAction.payload.boosterCode === 'BOOSTER_12';
     steps.push({
       api: () => roomApi.deployGaiaformer(roomId, playerId, gaiaformerAction.payload.hexQ, gaiaformerAction.payload.hexR, gaiaformerAction.payload.qicUsed, isBoosterGaiaform || undefined),
       errorLabel: '가이아포머 배치 실패',
@@ -146,31 +166,26 @@ export function buildConfirmPlan(
     }
 
     case 'UPGRADE_BUILDING': {
+      // 검은행성 좌표 (거리 5단계 트랙 전진 보상 — 업그레이드 API에 포함)
+      const lostPlanetAction = actions.find(a => a.type === 'PLACE_LOST_PLANET');
+      const lpQ = lostPlanetAction?.payload?.hexQ as number | undefined;
+      const lpR = lostPlanetAction?.payload?.hexR as number | undefined;
       steps.push({
         api: () => roomApi.upgradeBuilding(
           roomId, playerId, firstAction.payload.hexQ, firstAction.payload.hexR, firstAction.payload.toType,
           techTile ?? undefined, techTrack ?? undefined, firstAction.payload.academyType ?? undefined, coverTile ?? undefined,
+          lpQ, lpR,
         ),
         errorLabel: '건물 업그레이드 실패',
       });
-      // 2삽 기술 타일(BASIC_EXP_TILE_3) → 후속 광산 건설
-      if (mineAction) {
+      // BASIC_EXP_TILE_3 후속 광산: BE에서 DEFERRED_ACTION_REQUIRED로 처리 (별도 API 불필요)
+      // 2삽 기술 타일이 아닌 경우에만 후속 광산 건설 포함
+      if (mineAction && techTile !== 'BASIC_EXP_TILE_3') {
         const qicUsed = mineAction.payload.cost?.qic ?? 0;
         const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
-        const freeMine = techTile === 'BASIC_EXP_TILE_3';
-        // BASIC_EXP_TILE_3: 2단계 할인을 BE에 전달 (남은 테라포밍 광석 계산용)
-        const effectiveTd = freeMine ? 2 : terraformDiscount;
         steps.push({
-          api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, effectiveTd, freeMine),
+          api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount),
           errorLabel: '광산 건설 실패',
-        });
-      }
-      // 검은행성 배치 (거리 5단계 트랙 전진 보상)
-      const lostPlanetAction = actions.find(a => a.type === 'PLACE_LOST_PLANET');
-      if (lostPlanetAction) {
-        steps.push({
-          api: () => roomApi.placeLostPlanet(roomId, playerId, lostPlanetAction.payload.hexQ, lostPlanetAction.payload.hexR),
-          errorLabel: '검은행성 배치 실패',
         });
       }
       break;
@@ -198,14 +213,7 @@ export function buildConfirmPlan(
         api: () => roomApi.advanceTechTrack(roomId, playerId, firstAction.payload.trackCode),
         errorLabel: '기술 트랙 전진 실패',
       });
-      // 거리 5단계 → 검은행성 배치
-      const lpAction = actions.find(a => a.type === 'PLACE_LOST_PLANET');
-      if (lpAction) {
-        steps.push({
-          api: () => roomApi.placeLostPlanet(roomId, playerId, lpAction.payload.hexQ, lpAction.payload.hexR),
-          errorLabel: '검은행성 배치 실패',
-        });
-      }
+      // 거리 5단계 → 검은행성 배치: BE에서 DEFERRED_ACTION_REQUIRED로 처리
       break;
     }
 
@@ -229,12 +237,20 @@ export function buildConfirmPlan(
       const fsa = firstAction as FleetShipAction;
       const needsTile = fsa.payload.actionCode === 'REBELLION_TECH' || fsa.payload.actionCode === 'TWILIGHT_UPGRADE';
       const needsArtifact = fsa.payload.actionCode === 'TWILIGHT_ARTIFACT';
+      const isTwilightFed = fsa.payload.actionCode === 'TWILIGHT_FED';
+      const isArtifact13Fed = needsArtifact && (fsa.payload as any).federationTileCode;
+      const isArtifact13TechFed = isArtifact13Fed && (fsa.payload as any).federationTileCode === 'FED_EXP_TILE_1';
       const trackCode = needsTile ? techTile ?? undefined
-        : needsArtifact ? techTile ?? (fsa.payload as any).artifactCode ?? undefined
+        : isArtifact13TechFed ? techTile ?? undefined
+        : needsArtifact ? (fsa.payload as any).artifactCode ?? undefined
+        : isTwilightFed ? techTile ?? undefined
         : fsa.payload.trackCode;
-      const techTrackCode = needsTile ? techTrack ?? undefined : undefined;
+      const techTrackCode = (needsTile || isTwilightFed || isArtifact13TechFed) ? techTrack ?? undefined : undefined;
+      const usedCoverTile = (needsTile || isTwilightFed || isArtifact13TechFed) ? coverTile ?? undefined : undefined;
+      const fedTileCode = isTwilightFed ? fedTokenCode ?? undefined
+        : isArtifact13Fed ? (fsa.payload as any).federationTileCode : undefined;
       steps.push({
-        api: () => roomApi.fleetShipAction(roomId, playerId, fsa.payload.actionCode, fsa.payload.hexQ, fsa.payload.hexR, trackCode, techTrackCode, needsTile ? coverTile ?? undefined : undefined, (fsa.payload as any).qicUsed ?? undefined),
+        api: () => roomApi.fleetShipAction(roomId, playerId, fsa.payload.actionCode, fsa.payload.hexQ, fsa.payload.hexR, trackCode, techTrackCode, usedCoverTile, (fsa.payload as any).qicUsed ?? undefined, undefined, fedTileCode, (fsa.payload as any).useBrainstone ?? undefined),
         errorLabel: '함대 액션 실패',
       });
       break;
@@ -284,13 +300,17 @@ export function buildConfirmPlan(
 export async function executeConfirmPlan(
   steps: ConfirmStep[],
 ): Promise<{ success: boolean; error?: string }> {
-  for (const step of steps) {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    console.log(`[CONFIRM] step ${i + 1}/${steps.length}: ${step.errorLabel}`);
     try {
       const res = await step.api();
+      console.log(`[CONFIRM] step ${i + 1} result:`, res.data);
       if (!res.data.success) {
         return { success: false, error: res.data.message || step.errorLabel };
       }
     } catch (e: any) {
+      console.error(`[CONFIRM] step ${i + 1} error:`, e);
       return { success: false, error: e?.response?.data?.message || step.errorLabel };
     }
   }

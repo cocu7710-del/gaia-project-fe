@@ -26,6 +26,9 @@ export const HOME_PLANET_TYPES = new Set(TERRAFORM_RING);
  *   - TRANSDIM/GAIA/EMPTY → Infinity (불가)
  */
 export function getTerraformingSteps(from: string, to: string): number {
+  // 원시행성: 홈 종족 포함 항상 3삽
+  if (to === 'LOST_PLANET') return 3;
+
   if (from === to) return 0;
 
   // 소행성/미행성 종족: 링 행성은 항상 1단계

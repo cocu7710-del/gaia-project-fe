@@ -226,6 +226,9 @@ function ruleFleetProbe(ctx: HexClickContext): RuleResult {
 
   if (hasOther || hasPendingTerraform) return { clickable: false, handled: true };
   if (ctx.gamePhase !== 'PLAYING') return { clickable: false, handled: true };
+  // 타클론: 브레인스톤이 가이아(0)에 있으면 함대 입장 불가
+  const myState = getMyState(ctx);
+  if (myState && (myState as any).factionCode === 'TAKLONS' && (myState as any).brainstoneBowl === 0) return { clickable: false, handled: true };
 
   const fleetName = sectorId.replace('FORGOTTEN_FLEET_', '');
   if (ctx.playerId && (ctx.fleetProbes[fleetName] || []).includes(ctx.playerId)) return { clickable: false, handled: true };
@@ -234,7 +237,6 @@ function ruleFleetProbe(ctx: HexClickContext): RuleResult {
     if (myFleetCount >= 3) return { clickable: false, handled: true };
   }
 
-  const myState = getMyState(ctx);
   if (!myState || myState.victoryPoints < 5) return { clickable: false, handled: true };
   if ((myState.factionCode === 'NEVLAS' || myState.factionCode === 'ITARS')
     && (myState.powerBowl1 + myState.powerBowl2 + myState.powerBowl3) <= 0) return { clickable: false, handled: true };
@@ -356,7 +358,7 @@ function ruleGaiaformerDeploy(ctx: HexClickContext): RuleResult {
   const myState = getMyState(ctx);
   if (!myState || myState.stockGaiaformer < 1) return { clickable: false, handled: true };
   const gaiaLevel = myState.techGaia;
-  const requiredPower = gaiaLevel <= 2 ? 6 : gaiaLevel === 3 ? 4 : gaiaLevel === 4 ? 5 : 4;
+  const requiredPower = gaiaLevel <= 2 ? 6 : gaiaLevel === 3 ? 4 : 3;
   const totalPower = myState.powerBowl1 + myState.powerBowl2 + myState.powerBowl3;
   if (totalPower < requiredPower) return { clickable: false, handled: true };
 
@@ -385,8 +387,9 @@ function ruleBuildingHex(ctx: HexClickContext): RuleResult {
     return { clickable: myState.credit >= 2 && myState.ore >= 1, handled: true };
   }
 
-  // 내 건물 업그레이드
-  if (ctx.gamePhase === 'PLAYING' && building.playerId === ctx.playerId && !hasPendingTerraform && !hasPendingNavBoost) {
+  // 내 건물 업그레이드 (연방 모드 중, FORM_FEDERATION pending 중에는 불가)
+  const hasFedPending = pending.some(a => a.type === 'FORM_FEDERATION');
+  if (ctx.gamePhase === 'PLAYING' && building.playerId === ctx.playerId && !hasPendingTerraform && !hasPendingNavBoost && !ctx.federationMode && !hasFedPending) {
     const isBescodsRule = ctx.mySeat?.raceCode === 'BESCODS';
     let options = UPGRADE_OPTIONS[building.buildingType];
     if (isBescodsRule && building.buildingType === 'TRADING_STATION') {

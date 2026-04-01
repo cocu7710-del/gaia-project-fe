@@ -1,15 +1,16 @@
 export const PLANET_COLORS: Record<string, string> = {
   TERRA: '#1a5fa8',      // 진한 파랑
-  VOLCANIC: '#a01010',   // 진한 빨강
-  OXIDE: '#c06010',      // 주황
-  DESERT: '#b08828',     // 노랑
-  SWAMP: '#6b4226',      // 진한 갈색
+  VOLCANIC: '#ff2222',   // 쨍한 빨강
+  OXIDE: '#ff6600',      // 밝은 주황
+  DESERT: '#ffcc00',     // 밝은 노랑
+  SWAMP: '#8b5e3c',      // 밝은 갈색
   TITANIUM: '#555555',   // 진한 회색
   ICE: '#b8d4e3',        // 하양
   GAIA: '#27ae60',
   TRANSDIM: '#000000',
   ASTEROIDS: '#f18fb0',
-  LOST_PLANET: '#80ffe5',
+  LOST_PLANET: '#00c9a0',
+  BLACK_PLANET: '#1a1a2e',
   EMPTY: '#34495e',
 };
 
@@ -26,5 +27,6 @@ export const VIVID_BORDER_COLORS: Record<string, string> = {
   TRANSDIM: '#000000',
   ASTEROIDS: '#cc2277',  // 진한 핑크
   LOST_PLANET: '#00ccaa',// 진한 민트
+  BLACK_PLANET: '#111122',
   EMPTY: '#34495e',
 };

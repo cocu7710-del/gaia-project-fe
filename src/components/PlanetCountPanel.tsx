@@ -7,11 +7,12 @@ interface Props {
   seats: SeatView[];
 }
 
-const PLANET_TYPES = ['TERRA', 'VOLCANIC', 'OXIDE', 'DESERT', 'SWAMP', 'TITANIUM', 'ICE', 'GAIA'] as const;
+const PLANET_TYPES = ['TERRA', 'VOLCANIC', 'OXIDE', 'DESERT', 'SWAMP', 'TITANIUM', 'ICE', 'GAIA', 'ASTEROIDS', 'LOST_PLANET', 'BLACK_PLANET'] as const;
 
 export default function PlanetCountPanel({ seats }: Props) {
   const buildings = useGameStore(s => s.buildings);
   const hexes = useGameStore(s => s.hexes);
+  const gameArtifacts = useGameStore(s => s.gameArtifacts);
 
   // hexCoord → planetType 맵
   const planetByCoord = useMemo(() => {
@@ -37,15 +38,25 @@ export default function PlanetCountPanel({ seats }: Props) {
     for (const b of buildings) {
       if (b.isLantidsMine) continue; // 란티다 기생 광산은 행성 종류에 포함하지 않음
       const planetType = planetByCoord.get(`${b.hexQ},${b.hexR}`);
-      if (!planetType || planetType === 'TRANSDIM' || planetType === 'ASTEROIDS' || planetType === 'LOST_PLANET') continue;
+      if (!planetType || planetType === 'TRANSDIM' || planetType === 'EMPTY') continue;
       const seat = seatByPlayerId.get(b.playerId);
       if (!seat) continue;
       if (!result.has(seat.seatNo)) result.set(seat.seatNo, new Map());
       const inner = result.get(seat.seatNo)!;
       inner.set(planetType, (inner.get(planetType) ?? 0) + 1);
     }
+    // 인공물 가상 건물 반영 (ARTIFACT_7: 소행성+1, ARTIFACT_8: 초월행성+1)
+    for (const art of (gameArtifacts ?? [])) {
+      if (!art.acquiredByPlayerId) continue;
+      const seat = seatByPlayerId.get(art.acquiredByPlayerId);
+      if (!seat) continue;
+      if (!result.has(seat.seatNo)) result.set(seat.seatNo, new Map());
+      const inner = result.get(seat.seatNo)!;
+      if (art.artifactCode === 'ARTIFACT_7') inner.set('ASTEROIDS', (inner.get('ASTEROIDS') ?? 0) + 1);
+      if (art.artifactCode === 'ARTIFACT_8') inner.set('LOST_PLANET', (inner.get('LOST_PLANET') ?? 0) + 1);
+    }
     return result;
-  }, [buildings, planetByCoord, seatByPlayerId]);
+  }, [buildings, planetByCoord, seatByPlayerId, gameArtifacts]);
 
   const activeSeatNos = Array.from(countMap.keys()).sort();
   if (activeSeatNos.length === 0) return null;

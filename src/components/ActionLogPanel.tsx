@@ -16,15 +16,16 @@ import { FEDERATION_TOKEN_IMAGE_MAP } from '../constants/federationTokenImage';
 import { BOOSTER_IMAGE_MAP } from '../constants/boosterImage';
 import { ROUND_SCORING_IMAGE_MAP } from '../constants/roundScoringImage';
 import { TECH_TILE_IMAGE_MAP } from '../constants/techTileImage';
+import { ARTIFACT_IMAGE_MAP } from '../constants/artifactImage';
 
 // 파워 액션 이미지
-import pwrK3Img from '../assets/action/K_3.jpg';
-import pwrTera2Img from '../assets/action/Tera_2.jpg';
-import pwrO2Img from '../assets/action/O_2.jpg';
-import pwrC7Img from '../assets/action/C_7.jpg';
-import pwrK2Img from '../assets/action/k_2.jpg';
-import pwrTera1Img from '../assets/action/Tera_1.jpg';
-import pwrTokenImg from '../assets/action/Token_2.jpg';
+import pwrK3Img from '../assets/action/K_3.png';
+import pwrTera2Img from '../assets/action/Tera_2.png';
+import pwrO2Img from '../assets/action/O_2.png';
+import pwrC7Img from '../assets/action/C_7.png';
+import pwrK2Img from '../assets/action/k_2.png';
+import pwrTera1Img from '../assets/action/Tera_1.png';
+import pwrTokenImg from '../assets/action/Token_2.png';
 
 // 함대 액션 이미지
 import tfTileVpImg from '../assets/action/T.F_Tile_Vp.png';
@@ -98,17 +99,28 @@ const FLEET_SHIP_BUILDING_IMG: Record<string, string> = {
   TWILIGHT_UPGRADE:  researchLabImg,
 };
 
-const imgStyle = { width: '2.73cqw', height: '2.73cqw', display: 'inline-block', verticalAlign: 'middle' };
+const imgStyle = { width: '3.28cqw', height: '3.28cqw', display: 'inline-block', verticalAlign: 'middle' };
+
+/** 건물 이미지에 플레이어 색상 tint 적용 */
+function BuildingIcon({ src, alt, color }: { src: string; alt: string; color: string }) {
+  return (
+    <span style={{ ...imgStyle, position: 'relative', display: 'inline-block' }}>
+      <img src={src} alt={alt} style={{ width: '100%', height: '100%', display: 'block' }} />
+      <span style={{ position: 'absolute', inset: 0, backgroundColor: color, opacity: 0.55, mixBlendMode: 'multiply', pointerEvents: 'none' }} />
+    </span>
+  );
+}
 
 function LogContent({ entry }: { entry: any }) {
   const d = entry.actionData || {};
+  const playerColor = PLANET_COLORS[FACTION_PLANET[entry.factionCode] ?? 'TERRA'] ?? '#888';
   switch (entry.actionType) {
     case 'PLACE_MINE':
-      return <img src={mineImg} style={imgStyle} alt="광산" />;
+      return <BuildingIcon src={mineImg} alt="광산" color={playerColor} />;
     case 'UPGRADE_BUILDING': {
       const fromImg = BUILDING_IMG[d.from] ?? mineImg;
       const toImg = BUILDING_IMG[d.to] ?? tradingStationImg;
-      return <><img src={fromImg} style={imgStyle} alt={d.from} /><span style={{ margin: '0 0.26cqw', color: '#9ca3af' }}>→</span><img src={toImg} style={imgStyle} alt={d.to} /></>;
+      return <><BuildingIcon src={fromImg} alt={d.from} color={playerColor} /><span style={{ margin: '0 0.26cqw', color: '#9ca3af' }}>→</span><BuildingIcon src={toImg} alt={d.to} color={playerColor} /></>;
     }
     case 'POWER_ACTION': {
       const pwrImg = POWER_ACTION_IMG[d.powerActionCode];
@@ -123,12 +135,19 @@ function LogContent({ entry }: { entry: any }) {
         : <span className="text-cyan-300">{d.fleetName}</span>;
     }
     case 'FLEET_SHIP_ACTION': {
+      // 인공물 획득: 인공물 이미지 표시
+      if (d.actionCode === 'TWILIGHT_ARTIFACT' && d.artifactCode) {
+        const artImg = ARTIFACT_IMAGE_MAP[d.artifactCode as string];
+        return artImg
+          ? <img src={artImg} style={imgStyle} alt={d.artifactCode} />
+          : <span className="text-cyan-300">{d.artifactCode}</span>;
+      }
       const actionImg = FLEET_SHIP_ACTION_IMG[d.actionCode];
       const buildingImg = FLEET_SHIP_BUILDING_IMG[d.actionCode];
       const tileImg = d.actionCode === 'REBELLION_TECH' && d.tileCode ? TECH_TILE_IMAGE_MAP[d.tileCode] : null;
       return <>
         {actionImg && <img src={actionImg} style={imgStyle} alt={d.actionCode} />}
-        {buildingImg && <img src={buildingImg} style={{ ...imgStyle, marginLeft: '0.2cqw' }} alt="building" />}
+        {buildingImg && <span style={{ marginLeft: '0.2cqw' }}><BuildingIcon src={buildingImg} alt="building" color={playerColor} /></span>}
         {tileImg && <img src={tileImg} style={{ ...imgStyle, marginLeft: '0.2cqw' }} alt={d.tileCode} />}
         {!actionImg && <span className="text-cyan-300">함대액션</span>}
       </>;
@@ -169,7 +188,7 @@ function LogContent({ entry }: { entry: any }) {
         QIC_ACADEMY_ACTION: 'QIC 아카데미',
       };
       if (d.abilityCode === 'IVITS_PLACE_STATION') {
-        return <img src={hiveImg} style={imgStyle} alt="우주정거장" />;
+        return <BuildingIcon src={hiveImg} alt="우주정거장" color={playerColor} />;
       }
       return <span className="text-yellow-300">{abilityLabel[d.abilityCode] ?? d.abilityCode ?? '능력'}</span>;
     }
@@ -181,8 +200,10 @@ function LogContent({ entry }: { entry: any }) {
       const bImg = d.boosterCode ? BOOSTER_IMAGE_MAP[d.boosterCode] : null;
       return bImg ? <img src={bImg} style={imgStyle} alt="부스터" /> : <span className="text-green-300">부스터</span>;
     }
-    case 'TECH_TILE_ACTION':
-      return <span className="text-amber-300">타일액션</span>;
+    case 'TECH_TILE_ACTION': {
+      const tileImg = d.tileCode ? TECH_TILE_IMAGE_MAP[d.tileCode] : null;
+      return tileImg ? <img src={tileImg} style={imgStyle} alt={d.tileCode} /> : <span className="text-amber-300">타일액션</span>;
+    }
     case 'QIC_ACADEMY_ACTION':
       return <img src={academyImg} style={imgStyle} alt="아카데미" />;
     case 'ROUND_STARTED':
@@ -240,12 +261,12 @@ export default function ActionLogPanel() {
             <div
               key={log.actionId ?? idx}
               className="flex items-center"
-              style={{ gap: '0.39cqw', padding: '0.13cqw 0', fontSize: '1.375cqw', cursor: hoverable ? 'pointer' : 'default' }}
+              style={{ gap: '0.47cqw', padding: '0.16cqw 0', fontSize: '1.375cqw', cursor: hoverable ? 'pointer' : 'default' }}
               title={tooltip}
               onMouseEnter={() => hoverable && setHighlightHex({ q: log.actionData.hexQ, r: log.actionData.hexR })}
               onMouseLeave={() => hoverable && setHighlightHex(null)}
             >
-              <div className="rounded-full flex-shrink-0" style={{ width: '1.75cqw', height: '1.75cqw', backgroundColor: color, border: '1px solid rgba(255,255,255,0.4)' }} />
+              <div className="rounded-full flex-shrink-0" style={{ width: '2.1cqw', height: '2.1cqw', backgroundColor: color, border: '1px solid rgba(255,255,255,0.4)' }} />
               <LogContent entry={log} />
             </div>
           );

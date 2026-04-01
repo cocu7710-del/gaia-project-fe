@@ -1,8 +1,10 @@
 import type { BoosterOfferResponse, PlayerStateResponse, SeatView } from '../api/client';
 import { BOOSTER_IMAGE_MAP } from '../constants/boosterImage';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { SelectBoosterAction } from '../types/turnActions';
 import { PLANET_COLORS } from '../constants/colors';
+import { calcPassVpDetail } from '../utils/passScoreCalculator';
 
 import { BOOSTER_ACTION_DEFS } from '../actions/actionRegistry';
 
@@ -37,7 +39,9 @@ export default function RoundBoosters({
   isMyTurn,
   playerStates = [],
 }: RoundBoostersProps) {
-  const { turnState, addPendingAction, setTentativeBooster } = useGameStore();
+  const { turnState, addPendingAction, setTentativeBooster } = useGameStore(useShallow(s => ({
+    turnState: s.turnState, addPendingAction: s.addPendingAction, setTentativeBooster: s.setTentativeBooster,
+  })));
 
   // 좌석 번호로 색상 찾기
   const getSeatColor = (seatNo: number | null): string | null => {
@@ -100,6 +104,20 @@ export default function RoundBoosters({
             const canSelect = canSelectForBoosterPhase || canSelectForPass;
             const imgSrc = BOOSTER_IMAGE_MAP[booster.boosterCode];
 
+            // 패스 부스터 선택 시 예상 VP 표시
+            let passVpLabel: string | null = null;
+            if (selectingPassBooster && !isPicked) {
+              const store = useGameStore.getState();
+              const myPs = playerStates.find(p => p.seatNo === mySeatNo);
+              const myAdvTiles = store.techTileData?.advancedTiles
+                ?.filter((t: any) => t.takenByPlayerId === myPs?.playerId)
+                .map((t: any) => t.tileCode) ?? [];
+              const { booster: bVp, advTile: aVp, total } = calcPassVpDetail(booster.boosterCode, myPs ?? null, store.buildings, store.hexes, myAdvTiles, store.federationGroups);
+              if (total > 0) {
+                passVpLabel = aVp > 0 && bVp > 0 ? `(${bVp} + ${aVp})VP` : `+${total}VP`;
+              }
+            }
+
             // 내 부스터 액션 버튼 표시 여부
             const isMyBooster = booster.pickedBySeatNo === mySeatNo;
             const boosterDef = BOOSTER_ACTION_DEFS[booster.boosterCode];
@@ -157,6 +175,11 @@ export default function RoundBoosters({
                     <div className="absolute inset-0 bg-yellow-400/40 border-2 border-yellow-400 border-dashed" />
                   )}
                 </button>
+
+                {/* 패스 VP 프리뷰 */}
+                {passVpLabel && (
+                  <div className="text-[8px] font-bold text-amber-300 mt-0.5">{passVpLabel}</div>
+                )}
 
                 {/* 선택한 플레이어 색상 동그라미 */}
                 <div className="mt-1 h-4 flex justify-center">

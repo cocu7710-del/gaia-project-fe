@@ -71,7 +71,7 @@ export const FLEET_SHIP_ACTION_DEFS: Record<string, FleetShipActionDef> = {
   TF_MARS_TERRAFORM: { actionCode: 'TF_MARS_TERRAFORM', fleetName: 'TF_MARS',   label: '크레딧3→테라1단계',        cost: { credit: 3 },             isImmediate: false, terraformDiscount: 1, description: '크레딧 3 소모 → 다음 광산 건설 시 테라포밍 1단계 무료' },
   // ECLIPSE
   ECLIPSE_VP:        { actionCode: 'ECLIPSE_VP',        fleetName: 'ECLIPSE',   label: 'QIC2→VP(행성+2)',          cost: { qic: 2 },                isImmediate: true,  description: 'QIC 2 소모 → 식민화한 행성 종류 수+2만큼 VP 획득' },
-  ECLIPSE_TECH:      { actionCode: 'ECLIPSE_TECH',      fleetName: 'ECLIPSE',   label: '파워2+지식2→트랙+1',       cost: { power: 2, knowledge: 2 }, isImmediate: true,  needsTrack: true, description: '파워 2 + 지식 2 → 기술 트랙 1단계 전진' },
+  ECLIPSE_TECH:      { actionCode: 'ECLIPSE_TECH',      fleetName: 'ECLIPSE',   label: '파워3+지식2→트랙+1',       cost: { power: 3, knowledge: 2 }, isImmediate: true,  needsTrack: true, description: '파워 3 + 지식 2 → 기술 트랙 1단계 전진' },
   ECLIPSE_MINE:      { actionCode: 'ECLIPSE_MINE',      fleetName: 'ECLIPSE',   label: '크레딧6→소행성광산',        cost: { credit: 6 },             isImmediate: true,  hexSelectType: 'ASTEROID_MINE', description: '크레딧 6 → 소행성 행성에 무료 광산 건설' },
   // REBELLION
   REBELLION_TECH:    { actionCode: 'REBELLION_TECH',    fleetName: 'REBELLION', label: 'QIC3→기술타일',            cost: { qic: 3 },                isImmediate: true,  needsTile: true, description: 'QIC 3 → 기본 기술 타일 1장 획득' },

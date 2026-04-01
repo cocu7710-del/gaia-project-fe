@@ -132,19 +132,19 @@ export function calcMineCost(
     return { possible, credit: 0, ore: 0, qic: navQic, gaiaformerUsed: true, vpBonus: 0, terraformSteps: 0 };
   }
 
-  // 홈 행성: 테라포밍 없음, 기본 비용만
-  if (targetPlanetType === myHomePlanetType) {
-    const cost = { credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic };
-    return { possible: afford(cost), credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic, gaiaformerUsed: false, vpBonus: 0, terraformSteps: 0 };
-  }
-
-  // 원시행성 (LOST_PLANET) - 홈 종족 포함 모든 종족: 3삽 + 기본 비용 + 6VP
+  // 원시행성 (LOST_PLANET) - 홈 종족 포함 모든 종족: 3삽 + 기본 비용 + 6VP (홈 행성 체크보다 우선)
   if (targetPlanetType === 'LOST_PLANET') {
     const orePerStep = getOrePerStep(techTerraforming);
     const effectiveSteps = Math.max(0, 3 - terraformDiscount);
     const totalOre = BASE_ORE + effectiveSteps * orePerStep;
     const cost = { credit: BASE_CREDIT, ore: totalOre, qic: navQic };
     return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 6, terraformSteps: 3 };
+  }
+
+  // 홈 행성: 테라포밍 없음, 기본 비용만
+  if (targetPlanetType === myHomePlanetType) {
+    const cost = { credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic };
+    return { possible: afford(cost), credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic, gaiaformerUsed: false, vpBonus: 0, terraformSteps: 0 };
   }
 
   // 기본 7종 링 행성

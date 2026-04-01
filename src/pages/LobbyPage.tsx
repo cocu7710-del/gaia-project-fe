@@ -14,7 +14,9 @@ import { analyzePending } from '../actions/pendingAnalyzer';
 import { buildConfirmPlan, executeConfirmPlan } from '../actions/confirmExecutor';
 import type { BoosterAction } from '../types/turnActions';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { gameSocket } from '../websocket/gameSocket';
+import { calcPassVp } from '../utils/passScoreCalculator';
 import type { GameEvent } from '../websocket/gameSocket';
 import HexMap from '../components/HexMap';
 import SeatSelector from '../components/SeatSelector';
@@ -73,7 +75,24 @@ export default function LobbyPage() {
     setTentativeTechTile,
     selectingPassBooster,
     setSelectingPassBooster,
-  } = useGameStore();
+  } = useGameStore(useShallow(s => ({
+    roomId: s.roomId, roomCode: s.roomCode, playerId: s.playerId, nickname: s.nickname,
+    status: s.status, gamePhase: s.gamePhase, seats: s.seats, mySeatNo: s.mySeatNo,
+    nextSetupSeatNo: s.nextSetupSeatNo, currentTurnSeatNo: s.currentTurnSeatNo,
+    setPublicState: s.setPublicState, setHexes: s.setHexes, setBuildings: s.setBuildings,
+    setMySeatNo: s.setMySeatNo, setPlayerInfo: s.setPlayerInfo, updateSeatClaimed: s.updateSeatClaimed,
+    updateGameStarted: s.updateGameStarted, updateMinePlaced: s.updateMinePlaced,
+    setCurrentTurnSeatNo: s.setCurrentTurnSeatNo, turnState: s.turnState, initializeTurn: s.initializeTurn,
+    addPendingAction: s.addPendingAction, clearPendingActions: s.clearPendingActions,
+    setConfirmError: s.setConfirmError, setIsConfirming: s.setIsConfirming,
+    setUsedPowerActionCodes: s.setUsedPowerActionCodes, incrementBurnPower: s.incrementBurnPower,
+    setFleetProbes: s.setFleetProbes, setFederationGroups: s.setFederationGroups,
+    leechBatch: s.leechBatch, setLeechBatch: s.setLeechBatch, updateLeechDecided: s.updateLeechDecided,
+    clearLeechBatch: s.clearLeechBatch, setItarsGaiaChoice: s.setItarsGaiaChoice,
+    setTinkeroidsActionChoice: s.setTinkeroidsActionChoice, itarsGaiaChoice: s.itarsGaiaChoice,
+    tinkeroidsActionChoice: s.tinkeroidsActionChoice, setTentativeTechTile: s.setTentativeTechTile,
+    selectingPassBooster: s.selectingPassBooster, setSelectingPassBooster: s.setSelectingPassBooster,
+  })));
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -84,6 +103,8 @@ export default function LobbyPage() {
   const [playerStates, setPlayerStates] = useState<PlayerStateResponse[]>([]);
 
   const [techRefreshKey, setTechRefreshKey] = useState(0);
+  // DEFERRED 자동 처리용: confirm 시 후속 액션 큐 (순서대로 처리)
+  const deferredQueueRef = useRef<{ type: string; hexQ: number; hexR: number; qicUsed?: number; gaiaformerUsed?: boolean }[]>([]);
   const [deferredAction, setDeferredAction] = React.useState<{ type: string; terraformDiscount: number } | null>(null);
   const [showGameResult, setShowGameResult] = useState(false);
 
@@ -124,6 +145,26 @@ export default function LobbyPage() {
     }
   }, [roomId]);
 
+  // 특수 페이즈(아이타/팅커로이드) 복원 - getPublicState 응답 기반
+  const restoreSpecialPhase = useCallback((stateData: any) => {
+    const phase = stateData.gamePhase;
+    const spId = stateData.pendingSpecialPlayerId;
+    const spData = stateData.pendingSpecialData;
+    if (phase === 'ITARS_GAIA_PHASE' && spId && spData) {
+      setItarsGaiaChoice({
+        itarsPlayerId: spId,
+        availableChoices: spData.availableChoices as number,
+        tilePicking: false,
+      });
+    } else if (phase === 'TINKEROIDS_ACTION_PHASE' && spId && spData) {
+      setTinkeroidsActionChoice({
+        tinkeroidsPlayerId: spId,
+        availableActions: (spData.availableActions as string[]) ?? [],
+        currentRound: (spData.currentRound as number) ?? 1,
+      });
+    }
+  }, [setItarsGaiaChoice, setTinkeroidsActionChoice]);
+
   // WebSocket 이벤트 핸들러 (ref로 관리 - 연결 끊김 방지)
   const eventHandlerRef = useRef<(event: GameEvent) => void>(() => {});
 
@@ -155,16 +196,8 @@ export default function LobbyPage() {
             setPublicState(stateRes.data);
             await loadBoosters();
             setBoosterPickSeatNo(event.payload.nextPickSeatNo as number);
-            // 부스터 선택 완료 후 팅커로이드 액션 선택 단계 복원
-            if (stateRes.data.gamePhase === 'TINKEROIDS_ACTION_PHASE'
-                && stateRes.data.pendingSpecialPlayerId
-                && stateRes.data.pendingSpecialData) {
-              setTinkeroidsActionChoice({
-                tinkeroidsPlayerId: stateRes.data.pendingSpecialPlayerId,
-                availableActions: stateRes.data.pendingSpecialData.availableActions as string[],
-                currentRound: stateRes.data.pendingSpecialData.currentRound as number,
-              });
-            }
+            // 부스터 선택 완료 후 특수 페이즈 복원
+            restoreSpecialPhase(stateRes.data);
           }
           break;
 
@@ -223,6 +256,7 @@ export default function LobbyPage() {
             setHexes(hexRes3.data);
             setTechRefreshKey(k => k + 1);
             await loadUsedPowerActions();
+            try { const fedRes = await roomApi.getFederationGroups(roomId); setFederationGroups(fedRes.data); } catch {}
             await loadFleetProbes();
             await loadBoosters();
             try { const fedRes = await roomApi.getFederationGroups(roomId); setFederationGroups(fedRes.data); } catch {}
@@ -241,11 +275,16 @@ export default function LobbyPage() {
             setPlayerStates(playerRes5.data);
             await loadBoosters();
             if (allPassedFlag) {
-              // 라운드 종료 시 전체 상태는 이미 위에서 갱신됨
+              // 라운드 종료 시 특수 페이즈 복원 (아이타/팅커로이드)
+              restoreSpecialPhase(stateResPass2.data);
             }
           }
           break;
 
+        case 'VIEWER_COUNT': {
+          useGameStore.setState({ viewerCount: (event.payload.count as number) ?? 0 });
+          break;
+        }
         case 'GAME_FINISHED':
           if (roomId) {
             const [stateResFin, playerResFin] = await Promise.all([
@@ -344,8 +383,14 @@ export default function LobbyPage() {
             }
           }
           if (roomId) {
-            const prPic = await roomApi.getPlayerStates(roomId);
+            const [prPic, stateResPic] = await Promise.all([
+              roomApi.getPlayerStates(roomId),
+              roomApi.getPublicState(roomId),
+            ]);
             setPlayerStates(prPic.data);
+            setPublicState(stateResPic.data);
+            // 파워수입 완료 후 아이타/팅커로이드 페이즈 전환 감지
+            restoreSpecialPhase(stateResPic.data);
           }
           break;
         }
@@ -463,40 +508,53 @@ export default function LobbyPage() {
 
         case 'DEFERRED_ACTION_REQUIRED': {
           const deferredPayload = event.payload;
-          if (deferredPayload.actionType === 'PLACE_MINE_TERRAFORM_2'
-              && deferredPayload.triggerPlayerId === (playerId || urlPlayerId)) {
-            setDeferredAction({ type: 'PLACE_MINE_TERRAFORM_2', terraformDiscount: 2 });
-            // 2삽 할인 pending 추가 → HexMap에서 광산 건설 모드 활성화
-            clearPendingActions();
-            addPendingAction({
-              id: `deferred-tf2-${Date.now()}`,
-              type: 'BOOSTER_ACTION',
-              timestamp: Date.now(),
-              payload: { boosterCode: 'DEFERRED_TERRAFORM_2', actionType: 'TERRAFORM_TWO_STEP', terraformDiscount: 2, navBonus: 0 },
-            });
+          if (deferredPayload.triggerPlayerId !== (playerId || urlPlayerId)) break;
+
+          // 큐에서 다음 후속 액션 확인
+          const nextInQueue = deferredQueueRef.current.length > 0 ? deferredQueueRef.current[0] : null;
+          const hasMoreInQueue = deferredQueueRef.current.length > 1;
+
+          // 2삽 광산: 자동 또는 수동
+          if (deferredPayload.actionType === 'PLACE_MINE_TERRAFORM_2') {
+            if (nextInQueue?.type === 'PLACE_MINE' && nextInQueue.hexQ != null && roomId) {
+              deferredQueueRef.current.shift();
+              try {
+                await roomApi.placeMine(roomId, playerId!, nextInQueue.hexQ, nextInQueue.hexR,
+                  nextInQueue.qicUsed ?? 0, nextInQueue.gaiaformerUsed ?? false, 2, true, hasMoreInQueue);
+              } catch (e: any) { console.error('[DEFERRED AUTO] 광산 배치 실패:', e); }
+            } else {
+              setDeferredAction({ type: 'PLACE_MINE_TERRAFORM_2', terraformDiscount: 2 });
+              clearPendingActions();
+              addPendingAction({ id: `deferred-tf2-${Date.now()}`, type: 'BOOSTER_ACTION', timestamp: Date.now(),
+                payload: { boosterCode: 'DEFERRED_TERRAFORM_2', actionType: 'TERRAFORM_TWO_STEP', terraformDiscount: 2, navBonus: 0 } });
+            }
           }
-          if (deferredPayload.actionType === 'PLACE_MINE_TERRAFORM_3'
-              && deferredPayload.triggerPlayerId === (playerId || urlPlayerId)) {
+          // 3삽 광산 (연방 특수)
+          if (deferredPayload.actionType === 'PLACE_MINE_TERRAFORM_3') {
             setDeferredAction({ type: 'PLACE_MINE_TERRAFORM_3', terraformDiscount: 3 });
-            // 3삽 할인 pending 추가 → HexMap에서 광산 건설 모드 활성화
             clearPendingActions();
-            addPendingAction({
-              id: `deferred-tf3-${Date.now()}`,
-              type: 'BOOSTER_ACTION',
-              timestamp: Date.now(),
-              payload: { boosterCode: 'DEFERRED_TERRAFORM_3', actionType: 'TERRAFORM_THREE_STEP', terraformDiscount: 3, navBonus: 0 },
-            });
+            addPendingAction({ id: `deferred-tf3-${Date.now()}`, type: 'BOOSTER_ACTION', timestamp: Date.now(),
+              payload: { boosterCode: 'DEFERRED_TERRAFORM_3', actionType: 'TERRAFORM_THREE_STEP', terraformDiscount: 3, navBonus: 0 } });
           }
-          if (deferredPayload.actionType === 'PLACE_MINE_NO_RANGE'
-              && deferredPayload.triggerPlayerId === (playerId || urlPlayerId)) {
+          // 무한거리 광산 (연방 특수)
+          if (deferredPayload.actionType === 'PLACE_MINE_NO_RANGE') {
             setDeferredAction({ type: 'PLACE_MINE_NO_RANGE', terraformDiscount: 0 });
             clearPendingActions();
-            addPendingAction({
-              id: `deferred-norange-${Date.now()}`,
-              type: 'BOOSTER_ACTION',
-              timestamp: Date.now(),
-              payload: { boosterCode: 'DEFERRED_NO_RANGE', actionType: 'PLACE_MINE_NO_RANGE', terraformDiscount: 0, navBonus: 99 },
-            });
+            addPendingAction({ id: `deferred-norange-${Date.now()}`, type: 'BOOSTER_ACTION', timestamp: Date.now(),
+              payload: { boosterCode: 'DEFERRED_NO_RANGE', actionType: 'PLACE_MINE_NO_RANGE', terraformDiscount: 0, navBonus: 99 } });
+          }
+          // 검은행성: 자동 또는 수동
+          if (deferredPayload.actionType === 'PLACE_LOST_PLANET') {
+            if (nextInQueue?.type === 'PLACE_LOST_PLANET' && nextInQueue.hexQ != null && roomId) {
+              deferredQueueRef.current.shift();
+              try {
+                await roomApi.placeLostPlanet(roomId, playerId!, nextInQueue.hexQ, nextInQueue.hexR);
+              } catch (e: any) { console.error('[DEFERRED AUTO] 검은행성 배치 실패:', e); }
+            } else {
+              setDeferredAction({ type: 'PLACE_LOST_PLANET', terraformDiscount: 0 });
+              clearPendingActions();
+              addPendingAction({ id: `deferred-lp-${Date.now()}`, type: 'PLACE_LOST_PLANET', timestamp: Date.now(), payload: {} });
+            }
           }
           break;
         }
@@ -515,16 +573,8 @@ export default function LobbyPage() {
             setHexes(hexRes2.data);
             setTechRefreshKey(k => k + 1);
             await loadBoosters();
-            // 팅커로이드 액션 선택 단계 복원
-            if (stateRes2.data.gamePhase === 'TINKEROIDS_ACTION_PHASE'
-                && stateRes2.data.pendingSpecialPlayerId
-                && stateRes2.data.pendingSpecialData) {
-              setTinkeroidsActionChoice({
-                tinkeroidsPlayerId: stateRes2.data.pendingSpecialPlayerId,
-                availableActions: stateRes2.data.pendingSpecialData.availableActions as string[],
-                currentRound: stateRes2.data.pendingSpecialData.currentRound as number,
-              });
-            }
+            // 특수 페이즈 복원
+            restoreSpecialPhase(stateRes2.data);
           }
           break;
       }
@@ -624,24 +674,7 @@ export default function LobbyPage() {
 
         // 7. 특수 페이즈 복원 (새로고침/재접속 시)
         const phase = stateRes.data.gamePhase;
-        const specialPlayerId = stateRes.data.pendingSpecialPlayerId;
-        const specialData = stateRes.data.pendingSpecialData;
-        if (phase === 'ITARS_GAIA_PHASE' && specialPlayerId && specialData) {
-          setItarsGaiaChoice({
-            itarsPlayerId: specialPlayerId,
-            availableChoices: specialData.availableChoices as number,
-            tilePicking: false,
-          });
-        } else if (phase === 'TINKEROIDS_ACTION_PHASE' && specialPlayerId) {
-          // 팅커로이드는 BE에서 availableActions를 별도로 받아야 하지만,
-          // 현재 구조상 WS 이벤트로만 전달됨 — 최소한 다이얼로그 표시를 위해 빈 액션으로 세팅
-          // (실제 선택 시 BE에서 검증하므로 안전)
-          setTinkeroidsActionChoice({
-            tinkeroidsPlayerId: specialPlayerId,
-            availableActions: (specialData?.availableActions as string[]) ?? [],
-            currentRound: stateRes.data.currentRound ?? 1,
-          });
-        }
+        restoreSpecialPhase(stateRes.data);
 
         // 7-0. 참가자 수 로드
         try {
@@ -864,26 +897,54 @@ export default function LobbyPage() {
         }
       }
 
-      const freeConverts = latestTurnState.freeConvertActions ?? [];
-      const sendFreeConverts = async (afterMain: boolean) => {
-        for (const fc of freeConverts) {
-          if (fc.afterMain !== afterMain) continue;
-          const isBrain = fc.code.endsWith('_BRAIN');
-          const realCode = isBrain ? fc.code.replace('_BRAIN', '') : fc.code;
-          await roomApi.freeConvert(roomId, playerId, realCode, isBrain || undefined);
-        }
+      const freeConverts = [...(latestTurnState.freeConvertActions ?? [])].sort((a, b) => a.seq - b.seq);
+      const mainSeq = latestTurnState.pendingActions.length > 0 ? (latestTurnState.pendingActions[0].timestamp ?? 0) : Infinity;
+
+      const sendFreeConvert = async (fc: { code: string; seq: number }) => {
+        const isBrain = fc.code.endsWith('_BRAIN');
+        const realCode = isBrain ? fc.code.replace('_BRAIN', '') : fc.code;
+        await roomApi.freeConvert(roomId, playerId, realCode, isBrain || undefined);
       };
 
-      // 메인 전 프리 액션
-      await sendFreeConverts(false);
+      // 메인 전 프리 액션 (seq < mainSeq)
+      for (const fc of freeConverts) {
+        if (fc.seq < mainSeq) await sendFreeConvert(fc);
+      }
 
       if (gamePhase === 'PLAYING') {
+        // DEFERRED 자동 처리용: 후속 액션 큐 구성
+        const { tentativeTechTileCode: cTechTile } = useGameStore.getState();
+        const queue: { type: string; hexQ: number; hexR: number; qicUsed?: number; gaiaformerUsed?: boolean }[] = [];
+        const mineForDeferred = latestTurnState.pendingActions.find(a => a.type === 'PLACE_MINE');
+        const lpForDeferred = latestTurnState.pendingActions.find(a => a.type === 'PLACE_LOST_PLANET' && a.payload?.hexQ != null);
+        // 2삽1광 광산 → 큐에 추가
+        if (cTechTile === 'BASIC_EXP_TILE_3' && mineForDeferred?.payload?.hexQ != null) {
+          queue.push({
+            type: 'PLACE_MINE',
+            hexQ: mineForDeferred.payload.hexQ,
+            hexR: mineForDeferred.payload.hexR,
+            qicUsed: mineForDeferred.payload.cost?.qic ?? 0,
+            gaiaformerUsed: mineForDeferred.payload.gaiaformerUsed ?? false,
+          });
+        }
+        // 검은행성 → 큐에 추가 (광산 뒤에)
+        if (lpForDeferred?.payload?.hexQ != null) {
+          queue.push({
+            type: 'PLACE_LOST_PLANET',
+            hexQ: lpForDeferred.payload.hexQ,
+            hexR: lpForDeferred.payload.hexR,
+          });
+        }
+        deferredQueueRef.current = queue;
+
         const plan = buildConfirmPlan(roomId, playerId, latestTurnState.pendingActions);
         const result = await executeConfirmPlan(plan);
-        if (!result.success) { setConfirmError(result.error || '액션 확정 실패'); return; }
+        if (!result.success) { deferredQueueRef.current = []; setConfirmError(result.error || '액션 확정 실패'); return; }
 
-        // 메인 후 프리 액션
-        await sendFreeConverts(true);
+        // 메인 후 프리 액션 (seq >= mainSeq)
+        for (const fc of freeConverts) {
+          if (fc.seq >= mainSeq) await sendFreeConvert(fc);
+        }
 
       } else {
         // SETUP 페이즈: 기존 방식
@@ -929,19 +990,39 @@ export default function LobbyPage() {
   // 턴 패스 핸들러 (PLAYING 페이즈) - 6라운드는 바로 종료, 그 외는 부스터 선택
   // 프리 액션/파워 소각은 유지하고 메인 액션만 정리
   const handlePassTurn = () => {
-    useGameStore.setState((state) => ({
+    // originalPlayerState가 null이면 (액션 없이 바로 패스) 현재 playerState를 기반으로 설정
+    const state = useGameStore.getState();
+    const myPs = state.turnState.originalPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo) ?? null;
+
+    // 현재 부스터 기준 패스 VP 계산 (반납하는 부스터의 패스 점수)
+    let passPreview = myPs;
+    if (myPs) {
+      const myBooster = boosters.find(b => b.pickedBySeatNo === mySeatNo);
+      const pid = myPs.playerId ?? state.playerId;
+      const td = state.techTileData;
+      const myAdvTiles = td?.advancedTiles
+        ?.filter((t: any) => t.takenByPlayerId === pid)
+        .map((t: any) => t.tileCode) ?? [];
+      const passVp = calcPassVp(myBooster?.boosterCode ?? null, myPs, state.buildings, state.hexes, myAdvTiles, state.federationGroups);
+      if (passVp > 0) {
+        passPreview = { ...myPs, victoryPoints: (myPs.victoryPoints ?? 0) + passVp };
+      }
+    }
+
+    useGameStore.setState((s) => ({
       fleetShipMode: null,
       federationMode: null,
       tentativeTechTileCode: null,
       tentativeTechTrackCode: null,
       tentativeCoverTileCode: null,
       turnState: {
-        ...state.turnState,
+        ...s.turnState,
         pendingActions: [],
         tentativeBuildings: [],
         tentativeBooster: null,
         confirmError: null,
-        // freeConvertActions, burnPowerCount, previewPlayerState 유지
+        originalPlayerState: myPs,
+        previewPlayerState: passPreview,
       },
     }));
     if (useGameStore.getState().currentRound === 6) {
@@ -1120,6 +1201,8 @@ export default function LobbyPage() {
               isConfirming={turnState.isConfirming}
               error={turnState.confirmError}
               selectingPassBooster={selectingPassBooster}
+              boosters={boosters}
+              playerStates={playerStates}
             />
             {/* 고급 타일 커버 선택: 개인판에서 직접 선택 */}
             {/* COMMON 고급 기술 타일 */}

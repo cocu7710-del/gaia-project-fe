@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { roomApi } from '../api/client';
 import type { TechTileInfo } from '../api/client';
 import { findTechTilePickerTrigger } from '../actions/pendingAnalyzer';
@@ -29,7 +30,10 @@ export default function TechTilePickerPanel({ roomId }: Props) {
     tentativeTechTileCode,
     tentativeTechTrackCode,
     setTentativeTechTile,
-  } = useGameStore();
+  } = useGameStore(useShallow(s => ({
+    turnState: s.turnState, tentativeTechTileCode: s.tentativeTechTileCode,
+    tentativeTechTrackCode: s.tentativeTechTrackCode, setTentativeTechTile: s.setTentativeTechTile,
+  })));
 
   const [tiles, setTiles] = useState<TechTileInfo[]>([]);
   const [pickingTrackFor, setPickingTrackFor] = useState<string | null>(null); // COMMON tile code waiting for track selection

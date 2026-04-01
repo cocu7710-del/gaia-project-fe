@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { roomApi } from '../api/client';
 import type { ScoringTilesResponse, SeatView } from '../api/client';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { ROUND_SCORING_IMAGE_MAP } from '../constants/roundScoringImage';
 import { FINAL_SCORING_IMAGE_MAP } from '../constants/finalScoringImage';
 import { PLANET_COLORS } from '../constants/colors';
@@ -15,7 +16,9 @@ interface ScoringTracksProps {
 export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: ScoringTracksProps) {
   const [scoringData, setScoringData] = useState<ScoringTilesResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const { currentRound, setRoundScoringTiles } = useGameStore();
+  const { currentRound, setRoundScoringTiles } = useGameStore(useShallow(s => ({
+    currentRound: s.currentRound, setRoundScoringTiles: s.setRoundScoringTiles,
+  })));
 
   useEffect(() => {
     const loadScoringData = async () => {
@@ -46,8 +49,8 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
   const cy = svgHeight + 12; // 중심은 아래쪽 바깥
   const radius = 104;
   const innerRadius = 35;
-  const totalAngle = 150; // 부채꼴 각도
-  const startAngle = -165; // 시작 각도 (왼쪽 위)
+  const totalAngle = 180; // 반원
+  const startAngle = -180; // 시작 각도 (왼쪽)
   const anglePerSlot = totalAngle / 6;
 
   // 극좌표 → 직교좌표
@@ -97,7 +100,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
         <svg
           width="100%"
           height={svgHeight * 1.5}
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+          viewBox={`-25 0 ${svgWidth + 50} ${svgHeight}`}
           className="overflow-visible"
           style={{ maxHeight: '234px' }}
         >
@@ -114,32 +117,41 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
                   d={describeSlot(idx)}
                   fill={isCurrentRound ? '#1e40af' : '#2d2d4a'}
                   stroke={isCurrentRound ? '#fbbf24' : '#555'}
-                  strokeWidth={isCurrentRound ? 1.5 : 0.5}
+                  strokeWidth={isCurrentRound ? 2 : 0.5}
                 />
 
                 {/* 이미지 (회전) */}
                 {imgSrc ? (
                   <image
                     href={imgSrc}
-                    x={slotInfo.x - 29}
-                    y={slotInfo.y - 39}
-                    width="57"
-                    height="78"
+                    x={slotInfo.x - 22}
+                    y={slotInfo.y - 30}
+                    width="44"
+                    height="60"
                     preserveAspectRatio="xMidYMid meet"
                     transform={`rotate(${slotInfo.rotation}, ${slotInfo.x}, ${slotInfo.y})`}
                   />
-                ) : (
-                  <text
-                    x={slotInfo.x}
-                    y={slotInfo.y}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fill="#9ca3af"
-                    fontSize="6"
-                  >
-                    R{rs.roundNumber}
-                  </text>
-                )}
+                ) : null}
+
+                {/* 라운드 번호 (현재 라운드: 1.1배 + 테두리 색) */}
+                {(() => {
+                  const labelR = radius - 5;
+                  const midAngle = startAngle + (idx + 0.5) * anglePerSlot;
+                  const pos = polarToCart(labelR, midAngle);
+                  return (
+                    <text
+                      x={pos.x}
+                      y={pos.y}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fill={isCurrentRound ? '#fbbf24' : '#555'}
+                      fontSize={isCurrentRound ? '11' : '10'}
+                      fontWeight="bold"
+                    >
+                      {rs.roundNumber}
+                    </text>
+                  );
+                })()}
 
               </g>
             );
@@ -148,7 +160,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
       </div>
 
       {/* 최종 점수 타일 (가로 2슬롯) + 플레이어별 개수 */}
-      <div className="flex gap-2 justify-center mt-2 mx-auto" style={{ width: 'min(66%, 200px)' }}>
+      <div className="flex gap-2 justify-center mt-6 mx-auto" style={{ width: 'min(66%, 200px)' }}>
         {finalScorings.map((fs) => {
           const imgSrc = FINAL_SCORING_IMAGE_MAP[fs.tileCode];
           // TODO: API에서 플레이어별 개수 데이터 연결
@@ -173,11 +185,13 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
                 )}
               </div>
 
-              {/* 플레이어별 개수 (세로 배치) */}
+              {/* 플레이어별 개수 (높은 순 정렬) */}
               <div className="flex flex-col gap-0.5 mt-1">
-                {seats.filter(s => s.playerId).map((seat) => {
+                {seats.filter(s => s.playerId)
+                  .map(seat => ({ seat, count: fs.playerProgress?.[seat.playerId!] ?? 0 }))
+                  .sort((a, b) => b.count - a.count)
+                  .map(({ seat, count }) => {
                   const color = PLANET_COLORS[seat.homePlanetType] || '#666';
-                  const count = fs.playerProgress?.[seat.playerId!] ?? 0;
                   return (
                     <div
                       key={seat.seatNo}

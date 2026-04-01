@@ -1,6 +1,7 @@
 import powerActionImg from '@/assets/board/powerAction.jpg';
 import closeImg from '../assets/resource/Close.png';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { isNevlasPiActive, effectiveBowl3Power } from '../utils/resourceCalculator';
 import type { PowerAction } from '../types/turnActions';
 
@@ -31,7 +32,9 @@ const POWER_ACTION_SLOTS: PowerActionSlot[] = [
 ];
 
 export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: PowerActionsProps) {
-  const { turnState, addPendingAction, gamePhase, usedPowerActionCodes } = useGameStore();
+  const { turnState, addPendingAction, gamePhase, usedPowerActionCodes } = useGameStore(useShallow(s => ({
+    turnState: s.turnState, addPendingAction: s.addPendingAction, gamePhase: s.gamePhase, usedPowerActionCodes: s.usedPowerActionCodes,
+  })));
 
   const isPlayingPhase = gamePhase === 'PLAYING';
   const hasPendingAction = turnState.pendingActions.length > 0;

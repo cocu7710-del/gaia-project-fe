@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement, useCallback } from 'react';
 import { roomApi } from '../api/client';
 import type { TechTrackResponse, TechTrackInfo, TechTileInfo, AdvancedTechTileInfo, PlayerStateResponse } from '../api/client';
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { TECH_TILE_IMAGE_MAP } from '../constants/techTileImage.ts';
 import { ADV_TECH_TILE_IMAGE_MAP } from '../constants/advTechTileImage.ts';
 import { PLANET_COLORS } from '../constants/colors';
@@ -59,7 +60,12 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
   const [terraFedTile, setTerraFedTile] = useState<FederationTileInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { turnState, addPendingAction, updatePreviewState, tentativeTechTileCode, tentativeTechTrackCode, setTentativeTechTile, setTechTileData, economyTrackOption, fleetShipMode, federationGroups } = useGameStore();
+  const { turnState, addPendingAction, updatePreviewState, tentativeTechTileCode, tentativeTechTrackCode, setTentativeTechTile, setTechTileData, economyTrackOption, fleetShipMode, federationGroups } = useGameStore(useShallow(s => ({
+    turnState: s.turnState, addPendingAction: s.addPendingAction, updatePreviewState: s.updatePreviewState,
+    tentativeTechTileCode: s.tentativeTechTileCode, tentativeTechTrackCode: s.tentativeTechTrackCode,
+    setTentativeTechTile: s.setTentativeTechTile, setTechTileData: s.setTechTileData,
+    economyTrackOption: s.economyTrackOption, fleetShipMode: s.fleetShipMode, federationGroups: s.federationGroups,
+  })));
   const itarsGaiaChoice = useGameStore(s => s.itarsGaiaChoice);
   const [pickingTrackFor, setPickingTrackFor] = useState<string | null>(null);
 
@@ -93,24 +99,24 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
   const isItarsTilePicking = itarsGaiaChoice?.tilePicking === true && itarsGaiaChoice.itarsPlayerId === myPlayerId;
 
   const handleTileClick = useCallback((tile: TechTileInfo) => {
-    // 아이타 기술타일 선택 모드: 임시 선택 (확정은 ItarsGaiaChoiceDialog에서)
+    const isAdv = tile.tileCode.startsWith('ADV_');
+    const isMineOwned = tile.takenByPlayerId === myPlayerId || ((tile as any).ownerPlayerIds ?? []).includes(myPlayerId);
+
+    // 아이타 기술타일 선택 모드: 일반 기술타일 선택과 동일한 로직
     if (isItarsTilePicking) {
-      if (tile.tileCode.startsWith('ADV_')) return; // 기본 타일만
-      const isMineOwned = tile.takenByPlayerId === myPlayerId || ((tile as any).ownerPlayerIds ?? []).includes(myPlayerId);
-      if (isMineOwned) return;
-      if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
+      if ((isAdv && tile.isTaken) || isMineOwned || tentativeTechTileCode) return;
+      if (['BASIC_EXP_TILE_3'].includes(tile.tileCode)) {
+        setTentativeTechTile(tile.tileCode, null);
+      } else if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
         setPickingTrackFor(tile.tileCode);
       } else {
         setTentativeTechTile(tile.tileCode, tile.trackCode);
       }
       return;
     }
-    // 기본 타일: 본인 보유만 차단, 고급 타일: 누구든 가져가면 차단
-    const isAdv = tile.tileCode.startsWith('ADV_');
-    const isMineOwned = tile.takenByPlayerId === myPlayerId || ((tile as any).ownerPlayerIds ?? []).includes(myPlayerId);
+    // 일반 기술타일 선택
     if (!hasPendingTechPickBase || (isAdv && tile.isTaken) || isMineOwned || tentativeTechTileCode) return;
     if (['BASIC_EXP_TILE_3'].includes(tile.tileCode)) {
-      // 2삽 1광산 타일: 타일만 선택 → 광산 배치 → 이후 트랙 선택
       setTentativeTechTile(tile.tileCode, null);
     } else if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
       setPickingTrackFor(tile.tileCode);
@@ -186,10 +192,18 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
   ) : -1;
 
   const handleTrackClick = (trackCode: string) => {
-    // 아이타 기술타일 선택: 공용 타일 → 트랙 지정 (임시 선택)
-    if (isItarsTilePicking && pickingTrackFor) {
-      setTentativeTechTile(pickingTrackFor, trackCode);
-      setPickingTrackFor(null);
+    // 아이타 기술타일 선택: 공용/확장 타일 또는 BASIC_EXP_TILE_3 → 트랙 지정
+    if (isItarsTilePicking) {
+      if (pickingTrackFor) {
+        setTentativeTechTile(pickingTrackFor, trackCode);
+        setPickingTrackFor(null);
+        return;
+      }
+      // BASIC_EXP_TILE_3 등 트랙 미지정 타일 선택 후 트랙 클릭
+      if (tentativeTechTileCode && !tentativeTechTrackCode) {
+        setTentativeTechTile(tentativeTechTileCode, trackCode);
+        return;
+      }
       return;
     }
     // 매드안드로이드: 최저 트랙만 선택 가능
@@ -209,8 +223,42 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
       setTentativeTechTile('__FIRAKS__', trackCode);
       return;
     }
-    // 공용/함대 타일 선택 후 트랙 지정 모드
+    // 고급 타일 선택 + 커버 완료 + 트랙 미선택 → 트랙 선택
+    if (!pickingTrackFor && tentativeTechTileCode?.startsWith('ADV_') && !tentativeTechTrackCode) {
+      const { tentativeCoverTileCode: coverDone } = useGameStore.getState();
+      if (coverDone) {
+        const field = trackToPlayerField[trackCode];
+        if (field && myPlayerState && (myPlayerState[field] as number) >= 5) return;
+        if (field && myPlayerState && (myPlayerState[field] as number) === 4) {
+          const usableFedCount = federationGroups.filter(g => g.playerId === myPlayerId && !g.used).length;
+          if (usableFedCount < 2) return; // 고급 타일 1 + 5단계 1
+        }
+        setTentativeTechTile(tentativeTechTileCode, trackCode);
+        if (trackCode === 'NAVIGATION' && myPlayerState && (myPlayerState.techNavigation ?? 0) === 4) {
+          addPendingAction({ id: `lp-${Date.now()}`, type: 'PLACE_LOST_PLANET', timestamp: Date.now(), payload: {} });
+        }
+        return;
+      }
+    }
+    // 공용/함대/고급 타일 선택 후 트랙 지정 모드 (pickingTrackFor 사용)
     if (pickingTrackFor) {
+      // 고급 타일: 커버 안 됐으면 트랙 선택 차단
+      const isAdvPicking = pickingTrackFor.startsWith('ADV_');
+      const { tentativeCoverTileCode: coverCheck } = useGameStore.getState();
+      if (isAdvPicking && !coverCheck) return;
+      const field = trackToPlayerField[trackCode];
+      // 5 이상이면 선택 불가
+      if (field && myPlayerState && (myPlayerState[field] as number) >= 5) return;
+      // 4→5 진입: 사용 가능한 연방 토큰 필요
+      if (field && myPlayerState && (myPlayerState[field] as number) === 4) {
+        const usableFedCount = federationGroups.filter(g => g.playerId === myPlayerId && !g.used).length;
+        // 고급 타일 획득 자체가 연방 토큰 1개 소모
+        const isAdvTile = pickingTrackFor?.startsWith('ADV_');
+        const advTileCost = isAdvTile ? 1 : 0;
+        // 5단계 진입에 추가 1개 필요
+        const needed = advTileCost + 1;
+        if (usableFedCount < needed) return;
+      }
       setTentativeTechTile(pickingTrackFor, trackCode);
       setPickingTrackFor(null);
       // 거리 트랙 4→5 도달 시 검은행성 배치 pending 자동 추가
@@ -245,8 +293,13 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
       }
       return;
     }
+    // 고급 타일 선택 중 커버 안 됐으면 트랙 클릭 차단
+    const { tentativeCoverTileCode: coverTile } = useGameStore.getState();
+    if (tentativeTechTileCode && tentativeTechTileCode.startsWith('ADV_') && !coverTile) return;
     if (!isMyTurn || !isPlayingPhase || hasPendingAction) return;
     if (!myPlayerState || myPlayerState.knowledge < 4) return;
+    // 발타크: PI 건설 전 NAVIGATION 트랙 전진 불가
+    if (trackCode === 'NAVIGATION' && myPlayerState.factionCode === 'BAL_TAKS' && myPlayerState.stockPlanetaryInstitute > 0) return;
 
     const field = trackToPlayerField[trackCode];
     if (!field || (myPlayerState[field] as number) >= 5) return;
@@ -389,19 +442,31 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
                           ) : null}
                         </div>
                       )}
-                      {/* 플레이어 마커 */}
-                      {players.length > 0 && (
-                        <div className="flex gap-px">
-                          {players.map(ps => {
-                            const planetType = getPlanetTypeFromFaction(ps.factionCode);
-                            return (
-                              <div key={ps.seatNo} className="rounded-full border border-white/80"
-                                style={{ backgroundColor: PLANET_COLORS[planetType] || '#fff', width: '0.6vw', height: '0.6vw', minWidth: 6, minHeight: 6 }}
-                                title={`${ps.seatNo}번 좌석`} />
-                            );
-                          })}
-                        </div>
-                      )}
+                      {/* 플레이어 마커 (2열, 아래부터 채움) */}
+                      {players.length > 0 && (() => {
+                        const rows: typeof players[] = [];
+                        for (let i = 0; i < players.length; i += 2) {
+                          rows.push(players.slice(i, i + 2));
+                        }
+                        // 마지막 행(홀수 개일 때 1개짜리)을 위로
+                        rows.reverse();
+                        return (
+                          <div className="flex flex-col gap-px">
+                            {rows.map((row, ri) => (
+                              <div key={ri} className="flex gap-px">
+                                {row.map(ps => {
+                                  const planetType = getPlanetTypeFromFaction(ps.factionCode);
+                                  return (
+                                    <div key={ps.seatNo} className="rounded-full"
+                                      style={{ borderWidth: '1.5px', borderStyle: 'solid', borderColor: 'white', backgroundColor: PLANET_COLORS[planetType] || '#fff', width: '0.79vw', height: '0.79vw', minWidth: 8, minHeight: 8 }}
+                                      title={`${ps.seatNo}번 좌석`} />
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -421,9 +486,8 @@ export default function TechTracks({ roomId, playerStates = [], isMyTurn = false
                       style={{ left: `calc(${colLeft}% + ${advLeftOffsetPx}px)`, top: `${ADV_TILE_Y.top}%`, width: `${colWidth}%`, height: `${ADV_TILE_Y.height}%`, zIndex: advCanClick ? 10 : 3, padding: '1px', pointerEvents: advCanClick ? 'auto' : 'none' }}
                       title={advCanClick ? '클릭하여 고급 타일 선택' : `[고급] ${advTile.description}`}
                       onClick={advCanClick ? () => {
-                        // 고급 타일은 트랙을 null로 → 플레이어가 원하는 트랙 선택
+                        // 고급 타일: 타일만 선택 (트랙 null) → 커버 타일 선택 → 트랙 선택 순서
                         setTentativeTechTile(advTile.tileCode, null);
-                        setPickingTrackFor(advTile.tileCode);
                       } : undefined}
                     >
                       {imgSrc && (

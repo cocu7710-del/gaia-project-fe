@@ -61,7 +61,8 @@ export const roomApi = {
 
   // 건물 업그레이드 (PLAYING 페이즈)
   upgradeBuilding: (roomId: string, playerId: string, hexQ: number, hexR: number,
-                    targetBuildingType: string, techTileCode?: string, techTrackCode?: string, academyType?: string, coveredTileCode?: string) =>
+                    targetBuildingType: string, techTileCode?: string, techTrackCode?: string, academyType?: string, coveredTileCode?: string,
+                    lostPlanetHexQ?: number, lostPlanetHexR?: number) =>
     apiClient.post<UpgradeBuildingResponse>(`/api/rooms/${roomId}/actions/upgrade`, {
       playerId,
       hexQ,
@@ -71,10 +72,12 @@ export const roomApi = {
       techTrackCode: techTrackCode || null,
       academyType: academyType || null,
       coveredTileCode: coveredTileCode || null,
+      lostPlanetHexQ: lostPlanetHexQ ?? null,
+      lostPlanetHexR: lostPlanetHexR ?? null,
     }),
 
   // PLAYING 페이즈 광산 건설
-  placeMine: (roomId: string, playerId: string, hexQ: number, hexR: number, qicUsed = 0, gaiaformerUsed = false, terraformDiscount = 0, freeMine = false) =>
+  placeMine: (roomId: string, playerId: string, hexQ: number, hexR: number, qicUsed = 0, gaiaformerUsed = false, terraformDiscount = 0, freeMine = false, hasFollowUp = false) =>
     apiClient.post<PlaceMinePlayResponse>(`/api/rooms/${roomId}/actions/mine`, {
       playerId,
       hexQ,
@@ -83,6 +86,7 @@ export const roomApi = {
       gaiaformerUsed,
       terraformDiscount,
       freeMine,
+      hasFollowUp,
     }),
 
   placeLostPlanet: (roomId: string, playerId: string, hexQ: number, hexR: number) =>
@@ -144,10 +148,10 @@ export const roomApi = {
     apiClient.post<ConfirmActionResponse>(`/api/rooms/${roomId}/actions/tech-tile-action`, { playerId, tileCode }),
 
   // 종족 고유 능력 사용
-  useFactionAbility: (roomId: string, playerId: string, abilityCode: string, trackCode?: string, hexQ?: number, hexR?: number) =>
+  useFactionAbility: (roomId: string, playerId: string, abilityCode: string, trackCode?: string, hexQ?: number, hexR?: number, qicUsed?: number) =>
     apiClient.post<{ gameId: string; success: boolean; message: string | null; abilityCode: string; nextTurnSeatNo: number | null }>(
       `/api/rooms/${roomId}/actions/faction-ability`,
-      { playerId, abilityCode, trackCode, hexQ, hexR }
+      { playerId, abilityCode, trackCode, hexQ, hexR, qicUsed }
     ),
 
   // 프리 액션: 자원 변환 (턴 소모 없음)
@@ -167,9 +171,9 @@ export const roomApi = {
 
   // 함대 선박 특수 액션
   fleetShipAction: (roomId: string, playerId: string, actionCode: string,
-                    hexQ?: number, hexR?: number, trackCode?: string, techTrackCode?: string, coveredTileCode?: string, qicUsed?: number) =>
+                    hexQ?: number, hexR?: number, trackCode?: string, techTrackCode?: string, coveredTileCode?: string, qicUsed?: number, splitAction?: boolean, federationTileCode?: string, useBrainstone?: boolean) =>
     apiClient.post<FleetShipActionResponse>(`/api/rooms/${roomId}/actions/fleet-ship`, {
-      playerId, actionCode, hexQ, hexR, trackCode, techTrackCode, coveredTileCode: coveredTileCode || null, qicUsed: qicUsed || null,
+      playerId, actionCode, hexQ, hexR, trackCode, techTrackCode, coveredTileCode: coveredTileCode || null, qicUsed: qicUsed || null, splitAction: splitAction ?? null, federationTileCode: federationTileCode || null, useBrainstone: useBrainstone || null,
     }),
 
   // 연방 타일 조회
@@ -223,10 +227,10 @@ export const roomApi = {
 
   // 아이타 라운드 종료 가이아→기술타일 선택
   itarsGaiaChoice: (roomId: string, playerId: string, action: 'TAKE_TILE' | 'SKIP',
-                    tileCode?: string, techTrackCode?: string) =>
+                    tileCode?: string, techTrackCode?: string, coveredTileCode?: string) =>
     apiClient.post<{ gameId: string; success: boolean; message?: string; abilityCode?: string }>(
       `/api/rooms/${roomId}/actions/itars-gaia-choice`,
-      { playerId, action, tileCode, techTrackCode }
+      { playerId, action, tileCode, techTrackCode, coveredTileCode }
     ),
   // 테란 가이아→자원 수동 변환
   terransGaiaConvert: (roomId: string, playerId: string, credits: number, ores: number, qics: number, knowledges: number) =>

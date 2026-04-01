@@ -1,8 +1,15 @@
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 
 export default function GameInfo() {
   const { status, currentRound, gamePhase, economyTrackOption, gameCreatedAt, nextSetupSeatNo, currentTurnSeatNo, seats,
-    itarsGaiaChoice, tinkeroidsActionChoice, leechBatch } = useGameStore();
+    itarsGaiaChoice, tinkeroidsActionChoice, leechBatch, viewerCount } = useGameStore(useShallow(s => ({
+      status: s.status, currentRound: s.currentRound, gamePhase: s.gamePhase,
+      economyTrackOption: s.economyTrackOption, gameCreatedAt: s.gameCreatedAt,
+      nextSetupSeatNo: s.nextSetupSeatNo, currentTurnSeatNo: s.currentTurnSeatNo,
+      seats: s.seats, itarsGaiaChoice: s.itarsGaiaChoice, tinkeroidsActionChoice: s.tinkeroidsActionChoice,
+      leechBatch: s.leechBatch, viewerCount: s.viewerCount,
+    })));
 
   const getStatusText = () => {
     switch (status) {
@@ -83,6 +90,11 @@ export default function GameInfo() {
           <span className="font-medium text-gray-200">{economyTrackOption}</span>
         </div>
       )}
+
+      <div className="flex items-center gap-1.5">
+        <span className="text-gray-500 text-[10px] uppercase tracking-wider">접속</span>
+        <span className="font-medium text-gray-300">{viewerCount}명</span>
+      </div>
 
       {gameCreatedAt && (
         <div className="flex items-center gap-1.5 ml-auto">

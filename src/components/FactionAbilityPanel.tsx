@@ -1,4 +1,5 @@
 import { useGameStore } from '../store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import terraformingImg from '../assets/resource/Terraforming.png';
 import distanceImg from '../assets/resource/Distance.png';
 
@@ -26,7 +27,9 @@ interface Props {
 }
 
 export default function FactionAbilityPanel({ roomId: _roomId, playerId: _playerId, factionCode, playerState, onDone: _onDone }: Props) {
-  const { addFreeConvert, addPendingAction, turnState } = useGameStore();
+  const { addFreeConvert, addPendingAction, turnState } = useGameStore(useShallow(s => ({
+    addFreeConvert: s.addFreeConvert, addPendingAction: s.addPendingAction, turnState: s.turnState,
+  })));
 
   const hasPendingMain = turnState.pendingActions.length > 0;
 
@@ -148,8 +151,8 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
                     payload: { abilityCode: 'FIRAKS_DOWNGRADE', trackCode: t, hexQ: parseInt(hexQ), hexR: parseInt(hexR) },
                   });
                 }}
-                className={`px-1.5 py-0.5 rounded text-[9px] border
-                  ${factionAbilityUsed || hasPendingMain ? 'border-gray-600 text-gray-600' : 'border-orange-400 text-orange-300 hover:bg-orange-400/20'}`}
+                className={`px-2 py-1 rounded text-[10px] font-bold border transition-colors
+                  ${factionAbilityUsed || hasPendingMain ? 'border-gray-600 text-gray-600 cursor-not-allowed' : 'border-orange-400 text-orange-300 hover:bg-orange-400/20 cursor-pointer'}`}
               >{TRACK_LABELS[t]}</button>
             ))}
           </div>

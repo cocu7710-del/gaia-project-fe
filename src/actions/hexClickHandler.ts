@@ -100,8 +100,29 @@ function handleFederationMode(ctx: HexClickContext, cb: HexClickCallbacks): bool
 
   if (ctx.federationMode.phase === 'SELECT_BUILDINGS') {
     const already = ctx.federationMode.selectedBuildings.some((h: number[]) => h[0] === ctx.hex.hexQ && h[1] === ctx.hex.hexR);
-    if (already) cb.removeFederationBuilding(ctx.hex.hexQ, ctx.hex.hexR);
-    else cb.addFederationBuilding(ctx.hex.hexQ, ctx.hex.hexR);
+    if (already) {
+      cb.removeFederationBuilding(ctx.hex.hexQ, ctx.hex.hexR);
+    } else {
+      // 하이브: 기존 연방에 속한 건물 클릭 시 해당 연방의 모든 건물 자동 선택
+      const federationGroups = useGameStore.getState().federationGroups ?? [];
+      const mySeat = ctx.mySeat;
+      const myPlayerId = ctx.playerId;
+      if (mySeat?.raceCode === 'IVITS' && federationGroups.length > 0) {
+        const clickedKey = `${ctx.hex.hexQ},${ctx.hex.hexR}`;
+        const matchingGroup = federationGroups.find((g: any) =>
+          g.playerId === myPlayerId && g.buildingHexes?.some((h: number[]) => `${h[0]},${h[1]}` === clickedKey)
+        );
+        if (matchingGroup) {
+          // 해당 연방의 모든 건물 헥스를 한번에 추가
+          for (const h of matchingGroup.buildingHexes) {
+            const alreadySelected = ctx.federationMode.selectedBuildings.some((s: number[]) => s[0] === h[0] && s[1] === h[1]);
+            if (!alreadySelected) cb.addFederationBuilding(h[0], h[1]);
+          }
+          return true;
+        }
+      }
+      cb.addFederationBuilding(ctx.hex.hexQ, ctx.hex.hexR);
+    }
     return true;
   }
 
@@ -157,8 +178,16 @@ function handleFactionAbilityHex(ctx: HexClickContext, cb: HexClickCallbacks): b
   // 하이브 우주정거장
   const ivits = pending.find(a => a.type === 'FACTION_ABILITY' && a.payload?.abilityCode === 'IVITS_PLACE_STATION');
   if (ivits && ctx.hex.planetType === 'EMPTY') {
+    // QIC 항법 거리 계산
+    const myBuildings = ctx.buildings.filter(b => b.playerId === ctx.playerId);
+    const myState = ctx.playerStates?.find((p: any) => p.playerId === ctx.playerId);
+    const navLevel = myState?.techNavigation ?? 0;
+    const baseRange = navLevelToRange(navLevel) + getNavRangeBonus(ctx.techTileData, ctx.playerId);
+    const { reachable, qicNeeded } = getNavigationCost(ctx.hex.hexQ, ctx.hex.hexR, myBuildings, baseRange, myState?.qic ?? 0);
+    if (!reachable) return true; // 도달 불가
     ivits.payload.hexQ = ctx.hex.hexQ;
     ivits.payload.hexR = ctx.hex.hexR;
+    (ivits.payload as any).qicUsed = qicNeeded;
     cb.addTentativeBuilding({ id: `temp-station-${Date.now()}`, gameId: ctx.roomId, playerId: ctx.playerId, hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, buildingType: 'SPACE_STATION' });
     return true;
   }
@@ -281,7 +310,7 @@ function handleGaiaformerDeploy(ctx: HexClickContext, cb: HexClickCallbacks): bo
   if (!myState) return false;
 
   const gaiaLevel = myState.techGaia;
-  const powerSpent = isBoosterGaiaformer ? 0 : (gaiaLevel <= 2 ? 6 : gaiaLevel === 3 ? 4 : gaiaLevel === 4 ? 5 : 4);
+  const powerSpent = isBoosterGaiaformer ? 0 : (gaiaLevel <= 2 ? 6 : gaiaLevel === 3 ? 4 : 3);
   const { qicNeeded: navQic } = calcNavInfo(ctx, navBonus);
 
   const action: DeployGaiaformerAction = {
@@ -304,19 +333,29 @@ function handleGaiaMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean {
   const building = ctx.buildingByCoord.get(`${ctx.hex.hexQ},${ctx.hex.hexR}`);
   if (!building || building.playerId !== ctx.playerId || building.buildingType !== 'GAIAFORMER' || ctx.hex.planetType !== 'GAIA') return false;
 
+  // 새 행성 타입 개척 여부 (기오덴 PI +3지식 등)
+  const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId
+    && b.buildingType !== 'GAIAFORMER' && !b.isLantidsMine);
+  const existingPlanetTypes = new Set<string>();
+  for (const b of myBlds) {
+    const bHex = ctx.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
+    if (bHex) existingPlanetTypes.add(bHex.planetType);
+  }
+  const gaiaIsNewPlanet = !existingPlanetTypes.has('GAIA') || undefined;
+
   // 라운드 점수용: 새 섹터 진출 여부
   const gaiaTargetSector = getSectorIdFromHex(ctx.hex);
   let gaiaIsNewSector: boolean | undefined;
   if (gaiaTargetSector) {
-    const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
+    const allMyBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
     const sectorHexes = ctx.hexes.filter(h => getSectorIdFromHex(h) === gaiaTargetSector);
-    const hasMyBuildingInSector = sectorHexes.some(sh => myBlds.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR));
+    const hasMyBuildingInSector = sectorHexes.some(sh => allMyBlds.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR));
     gaiaIsNewSector = !hasMyBuildingInSector || undefined;
   }
 
   const action: PlaceMineAction = {
     id: uid(), type: 'PLACE_MINE', timestamp: Date.now(),
-    payload: { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost: { credit: 2, ore: 1 }, isGaia: true, isNewSector: gaiaIsNewSector },
+    payload: { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost: { credit: 2, ore: 1 }, isGaia: true, isNewPlanet: gaiaIsNewPlanet, isNewSector: gaiaIsNewSector },
   };
   cb.addPendingAction(action);
   cb.addTentativeBuilding({
@@ -354,11 +393,15 @@ function handleSetupMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean {
 
 function handleUpgrade(ctx: HexClickContext, cb: HexClickCallbacks): boolean {
   if (ctx.gamePhase !== 'PLAYING') return false;
+  // 연방 모드 중에는 업그레이드 불가
+  if (ctx.federationMode) return false;
 
   const building = ctx.buildingByCoord.get(`${ctx.hex.hexQ},${ctx.hex.hexR}`);
   if (!building || building.playerId !== ctx.playerId) return false;
 
   const pending = ctx.turnState.pendingActions;
+  // FORM_FEDERATION pending이 있으면 업그레이드 불가
+  if (pending.some(a => a.type === 'FORM_FEDERATION')) return false;
   const terraformDiscount = getTerraformDiscount(pending);
   const navBonus = getNavBonus(pending);
   const hasPendingTerraform = terraformDiscount > 0 && !pending.some(a => a.type === 'PLACE_MINE');
@@ -477,7 +520,9 @@ function handlePlayingMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean
   }
 
   // 새 행성 타입 개척 여부 (라운드 점수 + 기오덴 PI 보너스)
-  const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
+  // GAIAFORMER, 란티다 기생 광산은 행성 종류에 포함하지 않음
+  const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId
+    && b.buildingType !== 'GAIAFORMER' && !b.isLantidsMine);
   const existingPlanetTypes = new Set<string>();
   for (const b of myBlds) {
     const bHex = ctx.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
