@@ -15,7 +15,7 @@ interface ScoringTracksProps {
 export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: ScoringTracksProps) {
   const [scoringData, setScoringData] = useState<ScoringTilesResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const { currentRound } = useGameStore();
+  const { currentRound, setRoundScoringTiles } = useGameStore();
 
   useEffect(() => {
     const loadScoringData = async () => {
@@ -23,6 +23,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
         setLoading(true);
         const res = await roomApi.getScoringTiles(roomId);
         setScoringData(res.data);
+        setRoundScoringTiles(res.data.roundScorings);
       } catch {
         // 에러 무시
       } finally {
@@ -95,10 +96,10 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
       <div className="flex justify-center w-[95%] mx-auto">
         <svg
           width="100%"
-          height={svgHeight}
+          height={svgHeight * 1.5}
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="overflow-visible"
-          style={{ maxHeight: '156px' }}
+          style={{ maxHeight: '234px' }}
         >
 
           {roundScorings.map((rs, idx) => {
@@ -147,7 +148,7 @@ export default function ScoringTracks({ roomId, seats, refreshKey = 0 }: Scoring
       </div>
 
       {/* 최종 점수 타일 (가로 2슬롯) + 플레이어별 개수 */}
-      <div className="flex gap-2 justify-center mt-2 mx-auto" style={{ width: 'min(95%, 286px)' }}>
+      <div className="flex gap-2 justify-center mt-2 mx-auto" style={{ width: 'min(66%, 200px)' }}>
         {finalScorings.map((fs) => {
           const imgSrc = FINAL_SCORING_IMAGE_MAP[fs.tileCode];
           // TODO: API에서 플레이어별 개수 데이터 연결

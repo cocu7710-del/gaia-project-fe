@@ -33,7 +33,7 @@ export function buildConfirmPlan(
   const fleetShipAction = actions.find(a => a.type === 'FLEET_SHIP_ACTION') as FleetShipAction | undefined;
   const factionAbilityAction = actions.find(a => a.type === 'FACTION_ABILITY');
   const terraformDiscount = getTerraformDiscount(actions);
-  const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack } = useGameStore.getState();
+  const { tentativeTechTileCode: techTile, tentativeTechTrackCode: techTrack, tentativeCoverTileCode: coverTile } = useGameStore.getState();
 
   // 후속 행동 (광산/우주선/가이아포머)
   const followUp = mineAction || fleetProbeAction || gaiaformerAction;
@@ -91,11 +91,20 @@ export function buildConfirmPlan(
   }
 
   // === 3. 후속 행동 (광산/우주선/가이아포머) ===
-  if (mineAction) {
+  // 연방 특수 타일(3삽/무한거리)은 FORM_FEDERATION case에서 처리
+  // UPGRADE_BUILDING/FORM_FEDERATION이 main action인 경우 섹션 4에서 mine까지 함께 처리
+  const hasFedSpecialMine = actions.some(a => a.type === 'FORM_FEDERATION'
+    && (a.payload.tileCode === 'FED_EXP_TILE_5' || a.payload.tileCode === 'FED_EXP_TILE_7'));
+  const hasUpgradeOrFedMain = actions.some(a => a.type === 'UPGRADE_BUILDING' || a.type === 'FORM_FEDERATION');
+  if (mineAction && !hasFedSpecialMine && !hasUpgradeOrFedMain) {
     const qicUsed = mineAction.payload.cost?.qic ?? 0;
     const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
+    // 무료 광산: deferred 연방 특수 타일 또는 2삽 기술타일
+    const isDeferredFedMine = boosterAction?.payload.boosterCode?.startsWith('DEFERRED_TERRAFORM_3')
+      || boosterAction?.payload.boosterCode?.startsWith('DEFERRED_NO_RANGE');
+    const freeMine = !!isDeferredFedMine;
     steps.push({
-      api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount),
+      api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount, freeMine),
       errorLabel: '광산 건설 실패',
     });
     return steps;
@@ -140,16 +149,19 @@ export function buildConfirmPlan(
       steps.push({
         api: () => roomApi.upgradeBuilding(
           roomId, playerId, firstAction.payload.hexQ, firstAction.payload.hexR, firstAction.payload.toType,
-          techTile ?? undefined, techTrack ?? undefined, firstAction.payload.academyType ?? undefined,
+          techTile ?? undefined, techTrack ?? undefined, firstAction.payload.academyType ?? undefined, coverTile ?? undefined,
         ),
         errorLabel: '건물 업그레이드 실패',
       });
-      // 2삽 기술 타일 → 후속 광산 건설
+      // 2삽 기술 타일(BASIC_EXP_TILE_3) → 후속 광산 건설
       if (mineAction) {
         const qicUsed = mineAction.payload.cost?.qic ?? 0;
         const gaiaformerUsed = mineAction.payload.gaiaformerUsed ?? false;
+        const freeMine = techTile === 'BASIC_EXP_TILE_3';
+        // BASIC_EXP_TILE_3: 2단계 할인을 BE에 전달 (남은 테라포밍 광석 계산용)
+        const effectiveTd = freeMine ? 2 : terraformDiscount;
         steps.push({
-          api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, terraformDiscount),
+          api: () => roomApi.placeMine(roomId, playerId, mineAction.payload.hexQ, mineAction.payload.hexR, qicUsed, gaiaformerUsed, effectiveTd, freeMine),
           errorLabel: '광산 건설 실패',
         });
       }
@@ -222,7 +234,7 @@ export function buildConfirmPlan(
         : fsa.payload.trackCode;
       const techTrackCode = needsTile ? techTrack ?? undefined : undefined;
       steps.push({
-        api: () => roomApi.fleetShipAction(roomId, playerId, fsa.payload.actionCode, fsa.payload.hexQ, fsa.payload.hexR, trackCode, techTrackCode),
+        api: () => roomApi.fleetShipAction(roomId, playerId, fsa.payload.actionCode, fsa.payload.hexQ, fsa.payload.hexR, trackCode, techTrackCode, needsTile ? coverTile ?? undefined : undefined, (fsa.payload as any).qicUsed ?? undefined),
         errorLabel: '함대 액션 실패',
       });
       break;
@@ -238,9 +250,20 @@ export function buildConfirmPlan(
 
     case 'FORM_FEDERATION': {
       steps.push({
-        api: () => roomApi.formFederation(roomId, playerId, firstAction.payload.tileCode, firstAction.payload.placedTokens, firstAction.payload.selectedBuildings),
+        api: () => roomApi.formFederation(roomId, playerId, firstAction.payload.tileCode, firstAction.payload.placedTokens, firstAction.payload.selectedBuildings, techTile ?? undefined, techTrack ?? undefined, coverTile ?? undefined),
         errorLabel: '연방 형성 실패',
       });
+      // 3삽 광산 / 무한거리 광산: 후속 광산 건설
+      const fedMineAction = actions.find(a => a.type === 'PLACE_MINE');
+      if (fedMineAction) {
+        const qicUsed = fedMineAction.payload.cost?.qic ?? 0;
+        const gaiaformerUsed = fedMineAction.payload.gaiaformerUsed ?? false;
+        const td = firstAction.payload.tileCode === 'FED_EXP_TILE_5' ? 3 : 0;
+        steps.push({
+          api: () => roomApi.placeMine(roomId, playerId, fedMineAction.payload.hexQ, fedMineAction.payload.hexR, qicUsed, gaiaformerUsed, td, true),
+          errorLabel: '광산 건설 실패',
+        });
+      }
       break;
     }
 

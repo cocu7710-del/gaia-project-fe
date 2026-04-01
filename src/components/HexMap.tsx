@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
-import { mapApi } from '../api/client';
+import { mapApi, roomApi } from '../api/client';
 import type { GameHex, PlayerStateResponse, SeatView } from '../api/client';
 import { ResourceCalculator } from '../utils/resourceCalculator';
 import { BUILDING_COSTS } from '../constants/gameCosts';
@@ -16,9 +16,13 @@ import { getNavigationCost, navLevelToRange, getNavRangeBonus } from '../utils/n
 import { calcMineCost } from '../utils/mineActionCalculator';
 import { calcUpgradeCost, calcLeechInfo, type LeechInfo } from '../utils/upgradeCalculator';
 import pomerImg from '../assets/resource/Pomer.png';
+import hivePng from '../assets/resource/Hive.png';
 import knowledgePng from '../assets/resource/Knowledge.png';
 import qicPng from '../assets/resource/QIC.png';
+import creditImg from '../assets/resource/Credit.png';
 import FreePowerImage from './FreePowerImage';
+import ActionLogPanel from './ActionLogPanel';
+import BiddingOverlay from './BiddingOverlay';
 import mineBuildingPng from '../assets/building/Mine.png';
 import tradingStationBuildingPng from '../assets/building/TradingStation.png';
 import researchLabBuildingPng from '../assets/building/Research.png';
@@ -92,6 +96,7 @@ interface Props {
   roomId: string;
   playerStates?: PlayerStateResponse[];
   seats?: SeatView[];
+  onResultClick?: () => void;
 }
 
 /** flat-top axial → pixel */
@@ -184,8 +189,8 @@ function VpPanel({
   if (playerStates.length === 0) return null;
 
   return (
-      <div className="absolute z-10" style={{ bottom: '3cqw', right: '0.5cqw', backgroundColor: 'rgba(31,41,55,0.9)', padding: '0.35cqw', borderRadius: '0.3cqw', fontSize: '1.3cqw' }}>
-        <div className="font-bold text-orange-400" style={{ marginBottom: '0.2cqw' }}>VP</div>
+      <div className="absolute z-10" style={{ top: '0.5cqw', left: '0.5cqw', backgroundColor: 'rgba(31,41,55,0.9)', padding: '0.35cqw', borderRadius: '0.3cqw', fontSize: '1.3cqw' }}>
+        <div className="font-bold text-orange-400" style={{ marginBottom: '0.2cqw' }}>비딩</div>
         {playerStates.map((ps) => {
           const seat = seatBySeatNo.get(ps.seatNo);
           return (
@@ -212,7 +217,7 @@ function RemovedPomerPanel({
   if (players.length === 0) return null;
 
   return (
-    <div className="absolute z-10" style={{ bottom: '3cqw', left: '0.5cqw', backgroundColor: 'rgba(31,41,55,0.9)', padding: '0.35cqw', borderRadius: '0.3cqw', fontSize: '1.3cqw' }}>
+    <div style={{ backgroundColor: 'rgba(31,41,55,0.9)', padding: '0.35cqw', borderRadius: '0.3cqw', fontSize: '1.3cqw' }}>
       <div className="flex items-center font-bold text-purple-300" style={{ gap: '0.2cqw', marginBottom: '0.15cqw' }}>
         <img src={pomerImg} style={{ width: '1.3cqw', height: '1.3cqw' }} />
         <span>영구제거</span>
@@ -377,6 +382,7 @@ const BUILDING_IMAGES: Record<string, string> = {
   ACADEMY: academyBuildingPng,
   PLANETARY_INSTITUTE: planetaryInstituteBuildingPng,
   GAIAFORMER: pomerImg,
+  SPACE_STATION: hivePng,
 };
 
 /** 건물 타입 → 이미지 (플레이어 색상으로 colorize) */
@@ -390,35 +396,29 @@ function renderBuildingShape(
   const r = HEX_SIZE * 0.38;
   const opacity = isTentative ? 0.6 : 1.0;
 
-  // 우주정거장: 별 모양 SVG
+  const img = BUILDING_IMAGES[buildingType] ?? BUILDING_IMAGES.MINE;
+  const sizeScale = (buildingType === 'MINE' ? 4.8 * 1.2 : buildingType === 'GAIAFORMER' ? 4.8 / (1.3 * 1.5) * 1.25 : buildingType === 'SPACE_STATION' ? 4.8 * 0.55 : 4.8) * 0.85;
+  const size = r * sizeScale;
+
+  // 우주정거장: 필터 없이 원본 이미지
   if (buildingType === 'SPACE_STATION') {
-    const starSize = r * 2.5;
-    const points = Array.from({ length: 5 }, (_, i) => {
-      const outerAngle = (i * 72 - 90) * Math.PI / 180;
-      const innerAngle = ((i * 72) + 36 - 90) * Math.PI / 180;
-      const outerR = starSize * 0.45;
-      const innerR = starSize * 0.2;
-      return `${cx + outerR * Math.cos(outerAngle)},${cy + outerR * Math.sin(outerAngle)} ${cx + innerR * Math.cos(innerAngle)},${cy + innerR * Math.sin(innerAngle)}`;
-    }).join(' ');
     return (
       <g pointerEvents="none" opacity={opacity}>
-        <polygon points={points} fill={color} stroke={borderColor} strokeWidth="2.5" />
+        <image href={img} x={cx - size / 2} y={cy - size / 2 - 6} width={size} height={size} />
       </g>
     );
   }
-
-  const img = BUILDING_IMAGES[buildingType] ?? BUILDING_IMAGES.MINE;
-  const sizeScale = (buildingType === 'MINE' ? 4.8 * 1.2 : buildingType === 'GAIAFORMER' ? 4.8 / (1.3 * 1.5) : 4.8) * 0.85;
-  const size = r * sizeScale;
 
   // 그레이스케일 후 플레이어 색상으로 tint (밝은 영역 → 플레이어 색)
   const hex = color.replace('#', '');
   const cr = parseInt(hex.slice(0, 2), 16) / 255;
   const cg = parseInt(hex.slice(2, 4), 16) / 255;
   const cb = parseInt(hex.slice(4, 6), 16) / 255;
-  const filterId = `bf-${hex}`;
-  // luminance 계수 * color * 2배 boost (밝은 픽셀이 플레이어 색으로 채워짐)
-  const m = (c: number) => `${0.299*c*2.5} ${0.587*c*2.5} ${0.114*c*2.5} 0 0`;
+  const isBright = buildingType === 'GAIAFORMER';
+  const boost = isBright ? 3.5 : 2.5;
+  const gamma = isBright ? 1.2 : 2.0;
+  const filterId = `bf-${hex}-${isBright ? 'b' : 'n'}`;
+  const m = (c: number) => `${0.299*c*boost} ${0.587*c*boost} ${0.114*c*boost} 0 0`;
   const matrix = `${m(cr)}  ${m(cg)}  ${m(cb)}  0 0 0 1 0`;
 
   return (
@@ -432,9 +432,9 @@ function renderBuildingShape(
           {/* 이미지 colorize */}
           <feColorMatrix type="saturate" values="0" in="SourceGraphic" result="gray" />
           <feComponentTransfer in="gray" result="boosted">
-            <feFuncR type="gamma" amplitude="1" exponent="2.0" offset="0" />
-            <feFuncG type="gamma" amplitude="1" exponent="2.0" offset="0" />
-            <feFuncB type="gamma" amplitude="1" exponent="2.0" offset="0" />
+            <feFuncR type="gamma" amplitude="1" exponent={gamma} offset="0" />
+            <feFuncG type="gamma" amplitude="1" exponent={gamma} offset="0" />
+            <feFuncB type="gamma" amplitude="1" exponent={gamma} offset="0" />
           </feComponentTransfer>
           <feColorMatrix type="matrix" values={matrix} in="boosted" result="colorized" />
           {/* 테두리 위에 colorize 이미지 합성 */}
@@ -550,7 +550,7 @@ function HexTile({
         {/* 모웨이드 링: 초월행성 색상(시안) 원형 테두리 */}
         {building?.hasRing && (
           <circle cx={x} cy={y} r={HEX_SIZE * 0.55} fill="none"
-            stroke="#06b6d4" strokeWidth="2.5" strokeDasharray="4,2"
+            stroke="#ef4444" strokeWidth="4"
             opacity={0.9} pointerEvents="none" />
         )}
 
@@ -595,7 +595,24 @@ function HexTile({
   );
 }
 
-export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [] }: Props) {
+function HighlightHexOverlay() {
+  const highlightHex = useGameStore(s => s.highlightHex);
+  if (!highlightHex) return null;
+  const { x, y } = axialToPixel(highlightHex.q, highlightHex.r);
+  return (
+    <polygon
+      points={hexPoints(x, y)}
+      fill="rgba(255,255,255,0.35)"
+      stroke="#fff"
+      strokeWidth={2}
+      style={{ pointerEvents: 'none' }}
+    >
+      <animate attributeName="opacity" values="0.3;0.8;0.3" dur="1s" repeatCount="indefinite" />
+    </polygon>
+  );
+}
+
+export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [], onResultClick }: Props) {
   const {
     hexes: storeHexes,
     buildings,
@@ -632,9 +649,9 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
   // store에 hexes가 있으면 우선 사용 (ROUND_STARTED 시 갱신됨), 없으면 로컬 로딩 사용
   const hexes = storeHexes.length > 0 ? storeHexes : localHexes;
 
-  // 섹터 회전 가능 여부: 게임 시작(gamePhase 설정) 전까지
+  // 섹터 회전 가능 여부: 4명 입장 후 비딩 시작 전(MAP_ROTATE 페이즈)에만 허용
   const canRotateSector = useMemo(() => {
-    return !gamePhase;
+    return gamePhase === 'MAP_ROTATE';
   }, [gamePhase]);
 
   const [rotating, setRotating] = useState(false);
@@ -766,7 +783,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
   const getBuildingOwnerBorderColor = useCallback(
       (building: any) => {
         const seat = seatByPlayerId.get(building.playerId);
-        return seat ? VIVID_BORDER_COLORS[seat.homePlanetType] || '#ffffff' : '#ffffff';
+        return '#000000';
       },
       [seatByPlayerId],
   );
@@ -888,12 +905,49 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
   return (
       <div className="bg-gray-900 rounded-lg p-1 pb-4 relative h-full flex flex-col overflow-hidden" style={{ containerType: 'inline-size' }}>
         <VpPanel playerStates={playerStates} seatBySeatNo={seatBySeatNo} />
-        <RemovedPomerPanel playerStates={playerStates} seatBySeatNo={seatBySeatNo} />
+        {/* 결과 버튼 + 포머 소각 패널 - 우하단 수직 스택 */}
+        <div className="absolute z-10 flex flex-col items-end" style={{ bottom: '1cqw', right: '0.5cqw', gap: '0.4cqw' }}>
+          {onResultClick && (
+            <button
+              onClick={onResultClick}
+              style={{ fontSize: '1.1cqw', padding: '0.2cqw 0.6cqw', borderRadius: '0.3cqw' }}
+              className="bg-yellow-600/80 hover:bg-yellow-500/80 text-white font-bold transition"
+            >결과</button>
+          )}
+          <RemovedPomerPanel playerStates={playerStates} seatBySeatNo={seatBySeatNo} />
+        </div>
 
         {(() => {
-            // 캐릭터 미선택 상태
-            if (!mySeatNo && gamePhase === null && seats.some(s => s.playerId === null)) {
-              return <div className="flex justify-center"><div className="w-[60%] rounded text-center font-semibold bg-yellow-600 text-black" style={{ padding: '0.3cqw', fontSize: '2cqw' }}>플레이 하실 캐릭터 순번을 클릭해 주세요.</div></div>;
+            // 맵 회전 페이즈 (4명 입장 후, 비딩 전)
+            if (gamePhase === 'MAP_ROTATE') {
+              return (
+                <div className="flex justify-center">
+                  <div className="w-[70%] rounded text-center font-semibold bg-yellow-600 text-black flex flex-col items-center gap-1" style={{ padding: '0.4cqw', fontSize: '1.6cqw' }}>
+                    <span>중복된 행성을 확인하고 섹터 중앙 번호를 선택하여 맵을 회전시켜주세요.</span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await roomApi.startBidding(roomId);
+                          if (!res.data.success) alert(res.data.message ?? '비딩 시작 실패');
+                        } catch (e: any) {
+                          alert(e?.response?.data?.message ?? '비딩 시작 실패');
+                        }
+                      }}
+                      className="bg-green-700 hover:bg-green-600 text-white font-bold rounded border-2 border-black"
+                      style={{ fontSize: '1.6cqw', padding: '0.2cqw 1cqw', marginTop: '0.3cqw' }}
+                    >
+                      비딩 시작
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            // 대기 상태 / 비딩 진행 중
+            if (!mySeatNo && (gamePhase === null || gamePhase === 'BIDDING' || gamePhase === 'BID_SEAT_PICK') && seats.some(s => s.playerId === null)) {
+              const isBidding = gamePhase === 'BIDDING' || gamePhase === 'BID_SEAT_PICK';
+              const pCount = useGameStore.getState().participantCount || 1;
+              const msg = isBidding ? '비딩을 진행중입니다.' : `플레이어 입장을 대기중입니다. (현재${pCount})`;
+              return <div className="flex justify-center"><div className="w-[60%] rounded text-center font-semibold bg-yellow-600 text-black" style={{ padding: '0.3cqw', fontSize: '2cqw' }}>{msg}</div></div>;
             }
             if (!isMyTurn) return null;
 
@@ -918,10 +972,63 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             }
 
             const pending = turnState.pendingActions;
-            const { tentativeTechTileCode } = useGameStore.getState();
-            const bannerAnalysis = analyzePending(pending, fleetShipMode, tentativeTechTileCode, gamePhase);
-            const message = bannerAnalysis.bannerMessage;
-            const hasAction = bannerAnalysis.hasPending || bannerAnalysis.needsFleetHex;
+            const { tentativeTechTileCode, tentativeTechTrackCode, federationMode: fedMode } = useGameStore.getState();
+            const bannerAnalysis = analyzePending(pending, fleetShipMode, tentativeTechTileCode, gamePhase, tentativeTechTrackCode);
+            let message = bannerAnalysis.bannerMessage;
+            let hasAction = bannerAnalysis.hasPending || bannerAnalysis.needsFleetHex;
+            // 연방 모드 배너
+            if (fedMode) {
+              hasAction = true;
+              const fedStore = useGameStore.getState();
+              let fedButtons: React.ReactNode = null;
+              if (fedMode.phase === 'SELECT_BUILDINGS') {
+                const count = fedMode.selectedBuildings?.length ?? 0;
+                message = `건물 선택: ${count}개`;
+                fedButtons = <>
+                  <button onClick={async () => {
+                    if (!fedMode || !playerId) return;
+                    try {
+                      const res = await roomApi.validateFederationBuildings(roomId, playerId, fedMode.selectedBuildings);
+                      if (!res.data.success) { alert(res.data.message ?? '건물 선택 조건 미충족'); return; }
+                      useGameStore.setState((s) => ({
+                        federationMode: s.federationMode ? { ...s.federationMode, phase: 'PLACE_TOKENS' as const, minTokens: res.data.minTokens ?? 0 } : null,
+                      }));
+                    } catch (e: any) { alert(e?.response?.data?.message ?? e?.message ?? '검증 오류'); }
+                  }} className="bg-blue-600 hover:bg-blue-500 border-2 border-black px-2 py-0.5 rounded font-bold" style={{ fontSize: '1.5cqw' }}>확정</button>
+                  <button onClick={() => fedStore.setFederationMode(null)} className="bg-red-600 hover:bg-red-500 border-2 border-black px-2 py-0.5 rounded font-bold" style={{ fontSize: '1.5cqw' }}>취소</button>
+                </>;
+              } else if (fedMode.phase === 'PLACE_TOKENS') {
+                const placed = fedMode.placedTokens?.length ?? 0;
+                const minTk = fedMode.minTokens ?? 0;
+                const myPs = playerStates.find(p => p.seatNo === mySeatNo);
+                const totalTokens = myPs ? myPs.powerBowl1 + myPs.powerBowl2 + myPs.powerBowl3 : 0;
+                message = `토큰 배치: ${placed}개 (최소: ${minTk} / 보유: ${totalTokens})`;
+                fedButtons = <>
+                  <button onClick={async () => {
+                    if (!fedMode || !playerId) return;
+                    try {
+                      const res = await roomApi.validateFederation(roomId, playerId, fedMode.placedTokens, fedMode.selectedBuildings);
+                      if (!res.data.success) { alert(res.data.message ?? '연방 조건 미충족'); return; }
+                      fedStore.setFederationPhase('SELECT_TILE');
+                    } catch (e: any) { alert(e?.response?.data?.message ?? '검증 오류'); }
+                  }} className="bg-blue-600 hover:bg-blue-500 border-2 border-black px-2 py-0.5 rounded font-bold" style={{ fontSize: '1.5cqw' }}>확정</button>
+                  <button onClick={() => fedStore.setFederationMode(null)} className="bg-red-600 hover:bg-red-500 border-2 border-black px-2 py-0.5 rounded font-bold" style={{ fontSize: '1.5cqw' }}>취소</button>
+                </>;
+              } else if (fedMode.phase === 'SELECT_TILE') {
+                message = '연방 타일을 선택하세요.';
+              } else if (fedMode.phase === 'PLACE_SPECIAL_MINE') {
+                const is3tf = fedMode.specialTileCode === 'FED_EXP_TILE_5';
+                message = is3tf ? '(3테라포밍, 광산비용 무료) 광산을 건설해주세요.' : '(거리 제한 없음, 광산비용 무료) 광산을 건설해주세요.';
+              }
+              return (
+                <div className="flex justify-center">
+                  <div className="w-[60%] bg-emerald-600 text-white rounded font-semibold flex items-center gap-2 px-2" style={{ padding: '0.3cqw', fontSize: '2cqw' }}>
+                    <span className="flex-1 text-center">{message}</span>
+                    <div className="flex gap-1 flex-shrink-0">{fedButtons}</div>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div className="flex justify-center">
                 <div className={`w-[60%] rounded text-center font-semibold ${hasAction ? 'bg-emerald-600 text-white' : 'bg-yellow-600 text-black'}`} style={{ padding: '0.3cqw', fontSize: '2cqw' }}>
@@ -966,7 +1073,8 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             );
             const isFedBuilding = fedGroup?.buildingHexes.some(h => h[0] === hex.hexQ && h[1] === hex.hexR);
             const isFedTokenPlaced = fedGroup?.tokenHexes.some(h => h[0] === hex.hexQ && h[1] === hex.hexR);
-            const fedOwnerColor = fedGroup ? (seatByPlayerId.get(fedGroup.playerId) ? PLANET_COLORS[(seatByPlayerId.get(fedGroup.playerId) as any).homePlanetType] : '#888') : null;
+            const fedOwnerPlanet = fedGroup ? (seatByPlayerId.get(fedGroup.playerId) as any)?.homePlanetType : null;
+            const fedOwnerColor = fedGroup ? (fedOwnerPlanet === 'TITANIUM' ? '#a855f7' : (fedOwnerPlanet ? PLANET_COLORS[fedOwnerPlanet] : '#888')) : null;
 
             return (
                 <g key={`${hex.hexQ},${hex.hexR}`}>
@@ -1020,7 +1128,8 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             if (allFedHexes.size === 0) return null;
 
             const ownerSeat = seatByPlayerId.get(group.playerId);
-            const color = ownerSeat ? PLANET_COLORS[(ownerSeat as any).homePlanetType] || '#888' : '#888';
+            const ownerPlanet = (ownerSeat as any)?.homePlanetType;
+            const color = ownerSeat ? (ownerPlanet === 'TITANIUM' ? '#a855f7' : PLANET_COLORS[ownerPlanet] || '#888') : '#888';
 
             // flat-top 헥스 6방향: 이웃 좌표 + 외곽 변 (꼭짓점 인덱스)
             const dirs = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
@@ -1050,7 +1159,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             if (edges.length === 0) return null;
             return (
               <path key={`fed-border-${gi}`} d={edges.join(' ')} fill="none"
-                stroke={color} strokeWidth="3" opacity={0.7} pointerEvents="none" />
+                stroke={color} strokeWidth="6" opacity={0.7} pointerEvents="none" />
             );
           })}
 
@@ -1062,6 +1171,11 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
           />
 
           {/* 업그레이드 선택 패널 - 건물 오른쪽에 냉장고 형태로 표시 */}
+          {/* 업그레이드 팝업 바깥 클릭 시 닫기 */}
+          {upgradeChoiceHex && (
+            <rect x="-9999" y="-9999" width="99999" height="99999" fill="transparent"
+              onClick={() => setUpgradeChoiceHex(null)} style={{ cursor: 'default' }} />
+          )}
           {upgradeChoiceHex && playerId && (() => {
             const allBuildings = [...buildings, ...turnState.tentativeBuildings];
             const myState = turnState.previewPlayerState || playerStates.find(p => p.seatNo === mySeatNo);
@@ -1070,15 +1184,29 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
             const panelW = 140;
             const px = upgradeChoiceHex.px + HEX_SIZE * 1.2;
 
-            // TRADING_STATION → RESEARCH_LAB / PLANETARY_INSTITUTE
+            const isBescods = mySeat?.raceCode === 'BESCODS';
+            const isBalTaks = mySeat?.raceCode === 'BAL_TAKS';
+
+            // TRADING_STATION → RESEARCH_LAB / PLANETARY_INSTITUTE (+ ACADEMY for BESCODS)
             if (upgradeChoiceHex.fromType === 'TRADING_STATION') {
+              // 매안: 교역소→PI 불가
+              const canPIBescods = !isBescods;
               const costRL = calcUpgradeCost(upgradeChoiceHex.fromType, 'RESEARCH_LAB', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
               const costPI = calcUpgradeCost(upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
               const canRL = (!myState || ResourceCalculator.canAfford(myState, costRL)) && (myState?.stockResearchLab ?? 1) > 0;
-              const canPI = (!myState || ResourceCalculator.canAfford(myState, costPI)) && (myState?.stockPlanetaryInstitute ?? 1) > 0;
+              const canPI = canPIBescods && (!myState || ResourceCalculator.canAfford(myState, costPI)) && (myState?.stockPlanetaryInstitute ?? 1) > 0;
               const leechResLab = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'RESEARCH_LAB', allBuildings, playerStates, playerId, techTileData);
               const leechPI = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'PLANETARY_INSTITUTE', allBuildings, playerStates, playerId, techTileData);
-              const panelH = 130;
+
+              // 매안: 교역소→아카데미 추가
+              const costAcademy = isBescods ? calcUpgradeCost(upgradeChoiceHex.fromType, 'ACADEMY', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId) : null;
+              const myAcademies = isBescods ? allBuildings.filter(b => b.playerId === playerId && b.buildingType === 'ACADEMY') : [];
+              const hasKnowledgeAcademy = myAcademies.some(b => (b as any).academyType === 'KNOWLEDGE');
+              const hasQicAcademy = myAcademies.some(b => (b as any).academyType === 'QIC');
+              const canAcademyK = isBescods && costAcademy && (!myState || ResourceCalculator.canAfford(myState, costAcademy)) && (myState?.stockAcademy ?? 1) > 0 && !hasKnowledgeAcademy;
+              const canAcademyQ = isBescods && costAcademy && (!myState || ResourceCalculator.canAfford(myState, costAcademy)) && (myState?.stockAcademy ?? 1) > 0 && !hasQicAcademy;
+
+              const panelH = isBescods ? 200 : 130;
               const py = upgradeChoiceHex.py - panelH / 2;
               return (
                 <foreignObject x={px} y={py} width={panelW} height={panelH}>
@@ -1092,21 +1220,63 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
                       <span className="text-blue-200 text-[9px]">5c · 3o</span>
                       {leechResLab.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechResLab)}</span>}
                     </button>
-                    <button onClick={() => canPI && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE')}
-                      disabled={!canPI}
-                      className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canPI ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                      <span className="text-white text-[10px] font-bold">행성 의회</span>
-                      <span className="text-purple-200 text-[9px]">6c · 4o</span>
-                      {leechPI.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechPI)}</span>}
-                    </button>
+                    {!isBescods && (
+                      <button onClick={() => canPI && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE')}
+                        disabled={!canPI}
+                        className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canPI ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                        <span className="text-white text-[10px] font-bold">행성 의회</span>
+                        <span className="text-purple-200 text-[9px]">6c · 4o</span>
+                        {leechPI.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechPI)}</span>}
+                      </button>
+                    )}
+                    {isBescods && (
+                      <>
+                        <button onClick={() => canAcademyK && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_KNOWLEDGE')}
+                          disabled={!canAcademyK}
+                          className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canAcademyK ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                          <span className="text-white text-[10px] font-bold">아카데미 (2지식 수입)</span>
+                          <span className="text-green-200 text-[9px]">6c · 6o</span>
+                        </button>
+                        <button onClick={() => canAcademyQ && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_QIC')}
+                          disabled={!canAcademyQ}
+                          className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canAcademyQ ? 'bg-cyan-800 hover:bg-cyan-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                          <span className="text-white text-[10px] font-bold">아카데미 (1QIC 액션)</span>
+                          <span className="text-cyan-200 text-[9px]">6c · 6o</span>
+                        </button>
+                      </>
+                    )}
                     <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[9px] text-center py-1 cursor-pointer">취소</button>
                   </div>
                 </foreignObject>
               );
             }
 
-            // RESEARCH_LAB → ACADEMY_KNOWLEDGE / ACADEMY_QIC
+            // RESEARCH_LAB → ACADEMY (일반) / PI (매안)
             if (upgradeChoiceHex.fromType === 'RESEARCH_LAB') {
+              // 매안: 연구소→PI만 가능
+              if (isBescods) {
+                const costPI2 = calcUpgradeCost(upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
+                const canPI2 = (!myState || ResourceCalculator.canAfford(myState, costPI2)) && (myState?.stockPlanetaryInstitute ?? 1) > 0;
+                const leechPI2 = calcLeechInfo(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, 'PLANETARY_INSTITUTE', allBuildings, playerStates, playerId, techTileData);
+                const panelH2 = 80;
+                const py2 = upgradeChoiceHex.py - panelH2 / 2;
+                return (
+                  <foreignObject x={px} y={py2} width={panelW} height={panelH2}>
+                    <div style={{ width: panelW, height: panelH2, fontFamily: 'sans-serif' }}
+                      className="flex flex-col rounded-lg overflow-hidden border-2 border-yellow-500 shadow-xl">
+                      <div className="bg-yellow-600 text-black text-[10px] font-bold text-center py-1 px-1">업그레이드</div>
+                      <button onClick={() => canPI2 && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'PLANETARY_INSTITUTE')}
+                        disabled={!canPI2}
+                        className={`flex-1 flex flex-col items-center justify-center border-b border-yellow-500 px-1 ${canPI2 ? 'bg-purple-800 hover:bg-purple-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                        <span className="text-white text-[10px] font-bold">행성 의회</span>
+                        <span className="text-purple-200 text-[9px]">6c · 4o</span>
+                        {leechPI2.length > 0 && <span className="text-yellow-300 text-[8px] mt-0.5 text-center leading-tight">{leechText(leechPI2)}</span>}
+                      </button>
+                      <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[9px] text-center py-1 cursor-pointer">취소</button>
+                    </div>
+                  </foreignObject>
+                );
+              }
               const costAcademy = calcUpgradeCost(upgradeChoiceHex.fromType, 'ACADEMY', upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, allBuildings, playerId);
               const canAffordAcademy = !myState || ResourceCalculator.canAfford(myState, costAcademy);
               const hasStock = (myState?.stockAcademy ?? 1) > 0;
@@ -1128,7 +1298,7 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
                     {leechAcademy.length > 0 && <div className="text-yellow-300 text-[8px] text-center px-1">{leechText(leechAcademy)}</div>}
                     <button onClick={() => canKnowledge && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_KNOWLEDGE')}
                       disabled={!canKnowledge}
-                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canKnowledge ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canKnowledge ? 'bg-indigo-800 hover:bg-indigo-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
                       <img src={knowledgePng} alt="지식" className="w-5 h-5" />
                       <div className="flex flex-col items-start">
                         <span className="text-white text-[10px] font-bold">지식 학원</span>
@@ -1137,11 +1307,11 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
                     </button>
                     <button onClick={() => canQic && addUpgradeAction(upgradeChoiceHex.hexQ, upgradeChoiceHex.hexR, upgradeChoiceHex.fromType, 'ACADEMY_QIC')}
                       disabled={!canQic}
-                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canQic ? 'bg-indigo-800 hover:bg-indigo-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
-                      <img src={qicPng} alt="QIC" className="w-5 h-5" />
+                      className={`flex-1 flex items-center justify-center gap-1.5 border-b border-yellow-500 px-1 ${canQic ? 'bg-green-800 hover:bg-green-600 cursor-pointer' : 'bg-gray-700 cursor-not-allowed opacity-50'}`}>
+                      <img src={isBalTaks ? creditImg : qicPng} alt={isBalTaks ? '돈' : 'QIC'} className="w-5 h-5" />
                       <div className="flex flex-col items-start">
-                        <span className="text-white text-[10px] font-bold">QIC 학원</span>
-                        <span className="text-indigo-200 text-[9px]">QIC 획득 액션</span>
+                        <span className="text-white text-[10px] font-bold">{isBalTaks ? '돈 학원' : 'QIC 학원'}</span>
+                        <span className="text-indigo-200 text-[9px]">{isBalTaks ? '4돈 획득 액션' : 'QIC 획득 액션'}</span>
                       </div>
                     </button>
                     <button onClick={() => setUpgradeChoiceHex(null)} className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-[9px] text-center py-1 cursor-pointer">취소</button>
@@ -1152,29 +1322,12 @@ export default function HexMap({ roomId, playerStates = [], seats: seatsProp = [
 
             return null;
           })()}
+          {/* 액션 로그 호버 하이라이트 */}
+          <HighlightHexOverlay />
         </svg>
 
-        {/* FreePower 이미지 (클릭 가능한 프리 액션 오버레이 포함) */}
-        {(() => {
-          const myPS = gamePhase === 'PLAYING' && playerId
-            ? (turnState.previewPlayerState ?? playerStates.find(p => p.seatNo === mySeatNo))
-            : undefined;
-          return (
-            <div style={{ position: 'absolute', top: '1cqw', left: '1cqw', width: '7%' }}>
-              <FreePowerImage
-                ore={myPS?.ore ?? 0}
-                qic={myPS?.qic ?? 0}
-                powerBowl3={myPS?.powerBowl3 ?? 0}
-                knowledge={myPS?.knowledge ?? 0}
-                interactive={!!myPS && isMyTurn}
-                factionCode={myPS?.factionCode}
-                brainstoneBowl={myPS?.brainstoneBowl}
-                stockPlanetaryInstitute={myPS?.stockPlanetaryInstitute}
-              />
-            </div>
-          );
-        })()}
-
+        <ActionLogPanel />
+        <BiddingOverlay playerStates={playerStates} />
         <Legend seats={seatsProp} />
       </div>
   );

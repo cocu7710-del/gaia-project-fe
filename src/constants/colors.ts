@@ -1,10 +1,10 @@
 export const PLANET_COLORS: Record<string, string> = {
-  TERRA: '#4a90d9',      // 파랑
-  VOLCANIC: '#c94444',   // 빨강
-  OXIDE: '#e67e22',      // 주황
-  DESERT: '#d4a84b',     // 노랑
-  SWAMP: '#8b6b47',      // 갈색
-  TITANIUM: '#7f8c8d',   // 회색
+  TERRA: '#1a5fa8',      // 진한 파랑
+  VOLCANIC: '#a01010',   // 진한 빨강
+  OXIDE: '#c06010',      // 주황
+  DESERT: '#b08828',     // 노랑
+  SWAMP: '#6b4226',      // 진한 갈색
+  TITANIUM: '#555555',   // 진한 회색
   ICE: '#b8d4e3',        // 하양
   GAIA: '#27ae60',
   TRANSDIM: '#000000',
@@ -20,7 +20,7 @@ export const VIVID_BORDER_COLORS: Record<string, string> = {
   OXIDE: '#cc6600',      // 진한 주황
   DESERT: '#ccaa00',     // 진한 노랑
   SWAMP: '#5c3510',      // 진한 갈색
-  TITANIUM: '#777777',   // 진한 회색
+  TITANIUM: '#444444',   // 더 진한 회색
   ICE: '#000000',        // 검정
   GAIA: '#009933',       // 진한 초록
   TRANSDIM: '#000000',

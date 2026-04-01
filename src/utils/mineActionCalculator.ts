@@ -24,10 +24,11 @@ export type MineCostResult = {
   qic: number;           // navQic + 종족 QIC 합산
   gaiaformerUsed: boolean;
   vpBonus: number;       // 원시행성 +6
+  terraformSteps: number; // 라운드 점수 계산용 실제 테라포밍 단계 수 (할인 전)
 };
 
 const IMPOSSIBLE: MineCostResult = {
-  possible: false, credit: 0, ore: 0, qic: 0, gaiaformerUsed: false, vpBonus: 0,
+  possible: false, credit: 0, ore: 0, qic: 0, gaiaformerUsed: false, vpBonus: 0, terraformSteps: 0,
 };
 
 const EXPANSION_FACTIONS = new Set(['TINKEROIDS', 'DAKANIANS', 'MOWEIDS', 'SPACE_GIANTS']);
@@ -117,24 +118,24 @@ export function calcMineCost(
       // 글린: 가이아 입장 비용 QIC → ORE
       const totalOre = BASE_ORE + 1;
       const cost = { credit: BASE_CREDIT, ore: totalOre, qic: navQic };
-      return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 0 };
+      return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 0, terraformSteps: 0 };
     }
     const gaiaQic = (EXPANSION_FACTIONS.has(myFactionCode) && myFactionCode !== 'MOWEIDS') ? 2 : 1;
     const totalQic = gaiaQic + navQic;
     const cost = { credit: BASE_CREDIT, ore: BASE_ORE, qic: totalQic };
-    return { possible: afford(cost), credit: BASE_CREDIT, ore: BASE_ORE, qic: totalQic, gaiaformerUsed: false, vpBonus: 0 };
+    return { possible: afford(cost), credit: BASE_CREDIT, ore: BASE_ORE, qic: totalQic, gaiaformerUsed: false, vpBonus: 0, terraformSteps: 0 };
   }
 
-  // 홈 행성: 테라포밍 없음, 기본 비용만 (다카니안=ASTEROIDS 포함)
-  if (targetPlanetType === myHomePlanetType) {
-    const cost = { credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic };
-    return { possible: afford(cost), credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic, gaiaformerUsed: false, vpBonus: 0 };
-  }
-
-  // 소행성 (ASTEROIDS) - 비홈 종족만: 가이아포머 1개 제거
+  // 소행성 (ASTEROIDS) - 모든 종족: 가이아포머 1개 소각 후 무료 건설 (팅커/다카니안 포함)
   if (targetPlanetType === 'ASTEROIDS') {
     const possible = myState.stockGaiaformer > 0 && myState.qic >= navQic;
-    return { possible, credit: 0, ore: 0, qic: navQic, gaiaformerUsed: true, vpBonus: 0 };
+    return { possible, credit: 0, ore: 0, qic: navQic, gaiaformerUsed: true, vpBonus: 0, terraformSteps: 0 };
+  }
+
+  // 홈 행성: 테라포밍 없음, 기본 비용만
+  if (targetPlanetType === myHomePlanetType) {
+    const cost = { credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic };
+    return { possible: afford(cost), credit: BASE_CREDIT, ore: BASE_ORE, qic: navQic, gaiaformerUsed: false, vpBonus: 0, terraformSteps: 0 };
   }
 
   // 원시행성 (LOST_PLANET) - 홈 종족 포함 모든 종족: 3삽 + 기본 비용 + 6VP
@@ -143,15 +144,17 @@ export function calcMineCost(
     const effectiveSteps = Math.max(0, 3 - terraformDiscount);
     const totalOre = BASE_ORE + effectiveSteps * orePerStep;
     const cost = { credit: BASE_CREDIT, ore: totalOre, qic: navQic };
-    return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 6 };
+    return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 6, terraformSteps: 3 };
   }
 
   // 기본 7종 링 행성
   if (!HOME_PLANET_TYPES.has(targetPlanetType)) return IMPOSSIBLE;
 
+  // 라운드 점수 계산용: 할인 전 원시 테라포밍 단계 수
+  const rawSteps = calcTerraformSteps(targetPlanetType, myFactionCode, myHomePlanetType, seats, 0, extraTinkeroidsRingPlanet, extraMoweidsRingPlanet);
   const effectiveSteps = calcTerraformSteps(targetPlanetType, myFactionCode, myHomePlanetType, seats, terraformDiscount, extraTinkeroidsRingPlanet, extraMoweidsRingPlanet);
   const orePerStep = getOrePerStep(techTerraforming);
   const totalOre = BASE_ORE + effectiveSteps * orePerStep;
   const cost = { credit: BASE_CREDIT, ore: totalOre, qic: navQic };
-  return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 0 };
+  return { possible: afford(cost), credit: BASE_CREDIT, ore: totalOre, qic: navQic, gaiaformerUsed: false, vpBonus: 0, terraformSteps: rawSteps };
 }

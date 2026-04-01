@@ -29,10 +29,10 @@ export default function TurnConfirmationPanel({
   error,
   selectingPassBooster,
 }: TurnConfirmationPanelProps) {
-  const { tentativeTechTileCode, fleetShipMode, turnState: { tentativeBooster } } = useGameStore();
+  const { tentativeTechTileCode, tentativeTechTrackCode, fleetShipMode, turnState: { tentativeBooster } } = useGameStore();
   const isPlayingPhase = gamePhase === 'PLAYING';
 
-  const analysis = analyzePending(pendingActions, fleetShipMode, tentativeTechTileCode, gamePhase);
+  const analysis = analyzePending(pendingActions, fleetShipMode, tentativeTechTileCode, gamePhase, tentativeTechTrackCode);
   const hasMainAction = analysis.canConfirm;
 
   if (!isMyTurn) return null;
@@ -105,7 +105,7 @@ export default function TurnConfirmationPanel({
                      disabled:cursor-not-allowed text-white py-1 px-1.5 rounded-lg
                      transition font-semibold text-[8px] whitespace-nowrap"
         >
-          {isConfirming ? '처리중...' : '패스'}
+          {isConfirming ? '처리중...' : useGameStore.getState().currentRound === 6 ? '종료' : '패스'}
         </button>
       )}
     </div>

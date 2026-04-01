@@ -1,4 +1,10 @@
 import { useGameStore } from '../store/gameStore';
+import terraformingImg from '../assets/resource/Terraforming.png';
+import distanceImg from '../assets/resource/Distance.png';
+
+const iconImg = (src: string, alt: string) => (
+  <img src={src} alt={alt} className="inline-block w-3.5 h-3.5 align-middle mx-0.5" />
+);
 
 interface PlayerSnapshot {
   factionAbilityUsed: boolean;
@@ -28,7 +34,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
   const { factionAbilityUsed, stockGaiaformer, ore, credit, knowledge, gaiaPower = 0 } = playerState;
 
   // 자유 액션 버튼 (프리 액션: 턴 소모 없음, freeConvert 시스템 사용)
-  const freeBtn = (label: string, convertCode: string, disabled: boolean, desc: string) => (
+  const freeBtn = (label: React.ReactNode, convertCode: string, disabled: boolean, desc: string) => (
     <button
       key={convertCode}
       onClick={() => addFreeConvert(convertCode)}
@@ -45,7 +51,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
   );
 
   // 메인 액션 버튼 (턴 소모, pendingAction 시스템 사용)
-  const mainBtn = (label: string, abilityCode: string, disabled: boolean, desc: string,
+  const mainBtn = (label: React.ReactNode, abilityCode: string, disabled: boolean, desc: string,
                    extraPayload?: Record<string, any>) => (
     <button
       key={abilityCode + (extraPayload?.trackCode ?? '')}
@@ -92,7 +98,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
       break;
 
     case 'BESCODS':
-      buttons.push(mainBtn('최저트랙+1', 'BESCODS_ADVANCE_LOWEST_TRACK',
+      buttons.push(mainBtn('능력-트랙↑', 'BESCODS_ADVANCE_LOWEST_TRACK',
         factionAbilityUsed, '최저 기술 트랙 1칸 전진 (라운드당 1회, 액션)'));
       if (hasPi) {
         buttons.push(<span key="pi-passive" className="text-[9px] text-green-400">[PI] 본인 행성 건물 파워+1 (패시브)</span>);
@@ -100,7 +106,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
       break;
 
     case 'SPACE_GIANTS':
-      buttons.push(mainBtn('2삽 테라포밍', 'SPACE_GIANTS_TERRAFORM_2',
+      buttons.push(mainBtn(<>능력-{iconImg(terraformingImg, '테라포밍')}2</>, 'SPACE_GIANTS_TERRAFORM_2',
         factionAbilityUsed, '2단계 테라포밍 후 광산 건설 (라운드당 1회, 액션)',
         { terraformDiscount: 2 }));
       if (hasPi) {
@@ -109,7 +115,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
       break;
 
     case 'GLEENS':
-      buttons.push(mainBtn('2거리 점프', 'GLEENS_JUMP',
+      buttons.push(mainBtn(<>능력-{iconImg(distanceImg, '거리')}2</>, 'GLEENS_JUMP',
         factionAbilityUsed, '2거리 이내 광산 건설 (라운드당 1회, 액션)',
         { navBonus: 2 }));
       if (hasPi) {
@@ -126,7 +132,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
         const tracks = ['TERRA_FORMING', 'NAVIGATION', 'AI', 'GAIA_FORMING', 'ECONOMY', 'SCIENCE'];
         buttons.push(
           <div key="firaks-pi" className="flex flex-wrap gap-1">
-            <span className="text-[9px] text-yellow-400">[PI] RL→TS+트랙:</span>
+            <span className="text-[9px] text-yellow-400">능력-Down:</span>
             {tracks.map(t => (
               <button
                 key={t}
@@ -154,7 +160,7 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
     case 'AMBAS':
       if (hasPi) {
         buttons.push(
-          mainBtn('[PI] 광산↔의회 교환', 'AMBAS_SWAP',
+          mainBtn('능력-위치변경', 'AMBAS_SWAP',
             factionAbilityUsed, '맵에서 교환할 광산을 클릭하세요 (액션)')
         );
       }
@@ -228,13 +234,13 @@ export default function FactionAbilityPanel({ roomId: _roomId, playerId: _player
 
     case 'IVITS':
       if (hasPi) {
-        buttons.push(<span key="pi-info" className="text-[9px] text-green-400">[PI] 우주정거장 배치 (맵에서 클릭)</span>);
+        buttons.push(<span key="pi-info" className="text-[9px] text-green-400">능력-우주정거장 (맵에서 클릭)</span>);
       }
       break;
 
     case 'MOWEIDS':
       if (hasPi) {
-        buttons.push(<span key="pi-todo" className="text-[9px] text-gray-500">[PI] 건물 링 (+2파워) (미구현)</span>);
+        buttons.push(<span key="pi-info" className="text-[9px] text-green-400">능력-Ring(2pw) (맵에서 클릭)</span>);
       }
       break;
 

@@ -4,6 +4,8 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { roomApi, mapApi, buildingApi, fleetApi } from '../api/client';
 import type { BoosterOfferResponse, PlayerStateResponse } from '../api/client';
 import { PowerLeechDialog } from '../components/PowerLeechDialog';
+import { PowerIncomeDialog } from '../components/PowerIncomeDialog';
+import BiddingDialog from '../components/BiddingDialog';
 import { ItarsGaiaChoiceDialog } from '../components/ItarsGaiaChoiceDialog';
 import { TerransGaiaDialog } from '../components/TerransGaiaDialog';
 import { TinkeroidsActionChoiceDialog } from '../components/TinkeroidsActionChoiceDialog';
@@ -24,6 +26,9 @@ import PowerActions from '../components/PowerActions';
 import FederationSupply from '../components/FederationSupply';
 import RoundBoosters from '../components/RoundBoosters';
 import TurnConfirmationPanel from '../components/TurnConfirmationPanel';
+import CommonAdvTile from '../components/CommonAdvTile';
+import CoverTileSelector from '../components/CoverTileSelector';
+import GameResultPanel from '../components/GameResultPanel';
 export default function LobbyPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();
@@ -80,6 +85,7 @@ export default function LobbyPage() {
 
   const [techRefreshKey, setTechRefreshKey] = useState(0);
   const [deferredAction, setDeferredAction] = React.useState<{ type: string; terraformDiscount: number } | null>(null);
+  const [showGameResult, setShowGameResult] = useState(false);
 
   // 파워 액션 사용 현황 로드
   const loadUsedPowerActions = useCallback(async () => {
@@ -128,6 +134,10 @@ export default function LobbyPage() {
           if (roomId) {
             const stateRes = await roomApi.getPublicState(roomId);
             setPublicState(stateRes.data);
+            try {
+              const partRes = await roomApi.getParticipants(roomId);
+              useGameStore.getState().setParticipantCount(partRes.data.participants.length);
+            } catch {}
           }
           break;
 
@@ -199,6 +209,7 @@ export default function LobbyPage() {
 
         case 'TURN_CHANGED':
           setCurrentTurnSeatNo(event.payload.newTurnSeatNo as number | null);
+          setDeferredAction(null); // 턴 변경 시 deferred 배너 해제
           if (roomId) {
             const [playerRes3, buildingRes3, hexRes3] = await Promise.all([
               roomApi.getPlayerStates(roomId),
@@ -213,6 +224,7 @@ export default function LobbyPage() {
             setTechRefreshKey(k => k + 1);
             await loadUsedPowerActions();
             await loadFleetProbes();
+            await loadBoosters();
             try { const fedRes = await roomApi.getFederationGroups(roomId); setFederationGroups(fedRes.data); } catch {}
           }
           break;
@@ -220,24 +232,131 @@ export default function LobbyPage() {
         case 'PLAYER_PASSED':
           if (roomId) {
             const allPassedFlag = event.payload.allPassed as boolean;
-            // seatNo 직접 사용, 없으면 playerId로 찾기
-            const currentSeats = useGameStore.getState().seats;
-            const passedSeatNo = (event.payload.seatNo as number | undefined)
-              ?? currentSeats.find(s => s.playerId === (event.payload.playerId as string))?.seatNo;
-            if (passedSeatNo != null) useGameStore.getState().addPassedSeatNo(passedSeatNo);
-            await loadBoosters();
-            const playerRes5 = await roomApi.getPlayerStates(roomId);
+            // BE에서 최신 상태 로드 (passedSeatNos 포함)
+            const [stateResPass2, playerRes5] = await Promise.all([
+              roomApi.getPublicState(roomId),
+              roomApi.getPlayerStates(roomId),
+            ]);
+            setPublicState(stateResPass2.data);
             setPlayerStates(playerRes5.data);
+            await loadBoosters();
             if (allPassedFlag) {
-              useGameStore.getState().clearPassedSeatNos();
-              // 라운드 종료 시 전체 상태 갱신 (gamePhase, currentTurnSeatNo 반영)
-              const stateResPass = await roomApi.getPublicState(roomId);
-              setPublicState(stateResPass.data);
+              // 라운드 종료 시 전체 상태는 이미 위에서 갱신됨
             }
           }
           break;
 
+        case 'GAME_FINISHED':
+          if (roomId) {
+            const [stateResFin, playerResFin] = await Promise.all([
+              roomApi.getPublicState(roomId),
+              roomApi.getPlayerStates(roomId),
+            ]);
+            setPublicState(stateResFin.data);
+            setPlayerStates(playerResFin.data);
+            setShowGameResult(true);
+          }
+          break;
+
+        case 'ACTION_LOGGED': {
+          const entry = event.payload.entry as any;
+          if (entry) useGameStore.getState().appendActionLog(entry);
+          break;
+        }
+
+        case 'BIDDING_STARTED':
+        case 'BID_UPDATED': {
+          const bidPayload = event.payload as any;
+          useGameStore.getState().setBiddingState(bidPayload);
+          if (bidPayload.gamePhase) {
+            useGameStore.getState().setGamePhase(bidPayload.gamePhase);
+          }
+          break;
+        }
+        case 'BID_WON': {
+          if (roomId) {
+            const bidRes = await roomApi.getBiddingState(roomId);
+            useGameStore.getState().setBiddingState(bidRes.data as any);
+            if (bidRes.data.gamePhase) {
+              useGameStore.getState().setGamePhase(bidRes.data.gamePhase);
+            }
+          }
+          break;
+        }
+        case 'BID_SEAT_PICKED': {
+          if (roomId) {
+            const [seatRes, bidRes2] = await Promise.all([
+              roomApi.getPublicState(roomId),
+              roomApi.getBiddingState(roomId),
+            ]);
+            setPublicState(seatRes.data);
+            useGameStore.getState().setBiddingState(bidRes2.data as any);
+            if (bidRes2.data.gamePhase) {
+              useGameStore.getState().setGamePhase(bidRes2.data.gamePhase);
+            }
+            // 내 좌석 감지
+            const myPid = playerId || urlPlayerId;
+            if (myPid) {
+              const mySeat = seatRes.data.seats.find((s: any) => s.playerId === myPid);
+              if (mySeat) setMySeatNo(mySeat.seatNo);
+            }
+          }
+          break;
+        }
+        case 'BIDDING_COMPLETED': {
+          useGameStore.getState().setBiddingState(null);
+          if (roomId) {
+            const pubRes = await roomApi.getPublicState(roomId);
+            setPublicState(pubRes.data);
+            const psRes = await roomApi.getPlayerStates(roomId);
+            setPlayerStates(psRes.data);
+            // 내 좌석 감지
+            const myPid2 = playerId || urlPlayerId;
+            if (myPid2) {
+              const mySeat2 = pubRes.data.seats.find((s: any) => s.playerId === myPid2);
+              if (mySeat2) setMySeatNo(mySeat2.seatNo);
+            }
+          }
+          break;
+        }
+
+        case 'POWER_INCOME_CHOICE': {
+          const piPayload = event.payload;
+          useGameStore.getState().setPowerIncomeChoice({
+            players: piPayload.players as any[],
+          });
+          if (roomId) {
+            const prPi = await roomApi.getPlayerStates(roomId);
+            setPlayerStates(prPi.data);
+          }
+          break;
+        }
+
+        case 'POWER_INCOME_COMPLETED': {
+          const completedPid = event.payload.completedPlayerId as string;
+          const currentChoice = useGameStore.getState().powerIncomeChoice;
+          if (currentChoice) {
+            const remaining = currentChoice.players.filter(p => p.playerId !== completedPid);
+            if (remaining.length === 0) {
+              useGameStore.getState().setPowerIncomeChoice(null);
+            } else {
+              useGameStore.getState().setPowerIncomeChoice({ players: remaining });
+            }
+          }
+          if (roomId) {
+            const prPic = await roomApi.getPlayerStates(roomId);
+            setPlayerStates(prPic.data);
+          }
+          break;
+        }
+
         case 'ROUND_STARTED':
+          useGameStore.getState().appendActionLog({
+            actionId: `round-${Date.now()}`, playerId: '', seatNo: 0, factionCode: '',
+            roundNumber: (event.payload.roundNumber as number) ?? 0,
+            actionType: 'ROUND_STARTED', actionData: {},
+          });
+          useGameStore.getState().setPowerIncomeChoice(null);
           useGameStore.getState().clearPassedSeatNos();
           setItarsGaiaChoice(null);
           setTinkeroidsActionChoice(null);
@@ -256,6 +375,7 @@ export default function LobbyPage() {
             setBuildings(buildingRes4.data);
             await loadBoosters();
             setUsedPowerActionCodes([]);
+            setTechRefreshKey(k => k + 1);
           }
           break;
 
@@ -367,6 +487,17 @@ export default function LobbyPage() {
               payload: { boosterCode: 'DEFERRED_TERRAFORM_3', actionType: 'TERRAFORM_THREE_STEP', terraformDiscount: 3, navBonus: 0 },
             });
           }
+          if (deferredPayload.actionType === 'PLACE_MINE_NO_RANGE'
+              && deferredPayload.triggerPlayerId === (playerId || urlPlayerId)) {
+            setDeferredAction({ type: 'PLACE_MINE_NO_RANGE', terraformDiscount: 0 });
+            clearPendingActions();
+            addPendingAction({
+              id: `deferred-norange-${Date.now()}`,
+              type: 'BOOSTER_ACTION',
+              timestamp: Date.now(),
+              payload: { boosterCode: 'DEFERRED_NO_RANGE', actionType: 'PLACE_MINE_NO_RANGE', terraformDiscount: 0, navBonus: 99 },
+            });
+          }
           break;
         }
 
@@ -423,7 +554,8 @@ export default function LobbyPage() {
     };
   }, [roomId]);
 
-  // URL에서 playerId 검증 및 복원
+  // URL에서 playerId 검증 및 복원 (playerId 없으면 관전 모드)
+  const isSpectator = !urlPlayerId && !playerId;
   useEffect(() => {
     if (!roomId || !urlPlayerId || playerId) return;
 
@@ -510,6 +642,62 @@ export default function LobbyPage() {
             currentRound: stateRes.data.currentRound ?? 1,
           });
         }
+
+        // 7-0. 참가자 수 로드
+        try {
+          const partRes = await roomApi.getParticipants(roomId);
+          useGameStore.getState().setParticipantCount(partRes.data.participants.length);
+        } catch {}
+
+        // 7-1. 비딩 상태 복원
+        if (phase === 'BIDDING' || phase === 'BID_SEAT_PICK') {
+          try {
+            const bidRes = await roomApi.getBiddingState(roomId);
+            useGameStore.getState().setBiddingState(bidRes.data as any);
+          } catch {}
+        }
+
+        // 8-0. 액션 로그 로드
+        try {
+          const logRes = await roomApi.getActionLog(roomId);
+          useGameStore.getState().setActionLogs(logRes.data ?? []);
+        } catch {}
+
+        // 8-1. 파워 수입 복원 (POWER_INCOME_PHASE)
+        if (phase === 'POWER_INCOME_PHASE') {
+          try {
+            const allPs = playerRes.data;
+            const piPlayers: { playerId: string; items: any[] }[] = [];
+            for (const ps of allPs) {
+              if (!ps.playerId) continue;
+              const itemsRes = await roomApi.getPowerIncomeItems(roomId, ps.playerId);
+              if (itemsRes.data && itemsRes.data.length > 0) {
+                piPlayers.push({ playerId: ps.playerId, items: itemsRes.data });
+              }
+            }
+            if (piPlayers.length > 0) {
+              useGameStore.getState().setPowerIncomeChoice({ players: piPlayers });
+            }
+          } catch {}
+        }
+
+        // 8. 파워 리치 복원 (재접속 시 pending 리치가 있으면 복원)
+        try {
+          const leechRes = await roomApi.getPendingLeeches(roomId);
+          if (leechRes.data && leechRes.data.length > 0) {
+            const pendingOffers = leechRes.data.filter(o => o.status === 'PENDING');
+            if (pendingOffers.length > 0) {
+              const deciderIds = pendingOffers.map(o => o.receivePlayerId);
+              setLeechBatch({
+                batchKey: `restore-${Date.now()}`,
+                currentLeechId: pendingOffers[0].id,
+                currentDeciderId: deciderIds[0],
+                deciderIds,
+                offers: pendingOffers,
+              });
+            }
+          }
+        } catch {}
       } catch (err: any) {
         setError(err.response?.data?.message || '데이터 로드 실패');
       } finally {
@@ -655,8 +843,8 @@ export default function LobbyPage() {
       return;
     }
     // pendingAnalyzer로 확정 가능 여부 체크
-    const { tentativeTechTileCode: confirmTechTile, fleetShipMode: confirmFleetShipMode } = useGameStore.getState();
-    const confirmAnalysis = analyzePending(turnState.pendingActions, confirmFleetShipMode, confirmTechTile, gamePhase);
+    const { tentativeTechTileCode: confirmTechTile, tentativeTechTrackCode: confirmTechTrack, fleetShipMode: confirmFleetShipMode } = useGameStore.getState();
+    const confirmAnalysis = analyzePending(turnState.pendingActions, confirmFleetShipMode, confirmTechTile, gamePhase, confirmTechTrack);
     if (!confirmAnalysis.canConfirm) {
       setConfirmError(confirmAnalysis.needsFollowUp ? '위치를 선택하세요.' : '조건을 충족하세요.');
       return;
@@ -666,27 +854,36 @@ export default function LobbyPage() {
     setConfirmError(null);
 
     try {
+      // store에서 최신 상태 직접 읽기 (stale closure 방지)
+      const latestTurnState = useGameStore.getState().turnState;
+
       // 파워 소각 먼저 처리 (자유 행동)
-      if (turnState.burnPowerCount > 0) {
-        for (let i = 0; i < turnState.burnPowerCount; i++) {
+      if (latestTurnState.burnPowerCount > 0) {
+        for (let i = 0; i < latestTurnState.burnPowerCount; i++) {
           await roomApi.burnPower(roomId, playerId);
         }
       }
 
-      // 프리 액션 자원 변환 처리
-      if (turnState.freeConvertActions && turnState.freeConvertActions.length > 0) {
-        for (const code of turnState.freeConvertActions) {
-          // _BRAIN 접미사: 브레인스톤 사용
-          const isBrain = code.endsWith('_BRAIN');
-          const realCode = isBrain ? code.replace('_BRAIN', '') : code;
+      const freeConverts = latestTurnState.freeConvertActions ?? [];
+      const sendFreeConverts = async (afterMain: boolean) => {
+        for (const fc of freeConverts) {
+          if (fc.afterMain !== afterMain) continue;
+          const isBrain = fc.code.endsWith('_BRAIN');
+          const realCode = isBrain ? fc.code.replace('_BRAIN', '') : fc.code;
           await roomApi.freeConvert(roomId, playerId, realCode, isBrain || undefined);
         }
-      }
+      };
+
+      // 메인 전 프리 액션
+      await sendFreeConverts(false);
 
       if (gamePhase === 'PLAYING') {
-        const plan = buildConfirmPlan(roomId, playerId, turnState.pendingActions);
+        const plan = buildConfirmPlan(roomId, playerId, latestTurnState.pendingActions);
         const result = await executeConfirmPlan(plan);
         if (!result.success) { setConfirmError(result.error || '액션 확정 실패'); return; }
+
+        // 메인 후 프리 액션
+        await sendFreeConverts(true);
 
       } else {
         // SETUP 페이즈: 기존 방식
@@ -704,7 +901,7 @@ export default function LobbyPage() {
       }
 
       clearPendingActions(true);  // 프리뷰 유지 (WS 이벤트로 갱신될 때까지 깜빡임 방지)
-      setDeferredAction(null);    // deferred 배너 해제
+      // deferred 배너는 WS 이벤트로 새로 설정될 수 있으므로 여기서 해제하지 않음
       setTechRefreshKey(k => k + 1);
       // 상태 갱신 (사용한 액션 코드 + 플레이어 상태)
       if (roomId) {
@@ -729,27 +926,57 @@ export default function LobbyPage() {
     setSelectingPassBooster(false);
   };
 
-  // 턴 패스 핸들러 (PLAYING 페이즈) - 부스터 선택 모드 진입
+  // 턴 패스 핸들러 (PLAYING 페이즈) - 6라운드는 바로 종료, 그 외는 부스터 선택
+  // 프리 액션/파워 소각은 유지하고 메인 액션만 정리
   const handlePassTurn = () => {
-    clearPendingActions();
-    setSelectingPassBooster(true);
+    useGameStore.setState((state) => ({
+      fleetShipMode: null,
+      federationMode: null,
+      tentativeTechTileCode: null,
+      tentativeTechTrackCode: null,
+      tentativeCoverTileCode: null,
+      turnState: {
+        ...state.turnState,
+        pendingActions: [],
+        tentativeBuildings: [],
+        tentativeBooster: null,
+        confirmError: null,
+        // freeConvertActions, burnPowerCount, previewPlayerState 유지
+      },
+    }));
+    if (useGameStore.getState().currentRound === 6) {
+      handlePassWithBooster(null);
+    } else {
+      setSelectingPassBooster(true);
+    }
   };
 
-  // 부스터 선택 후 패스 확정
-  const handlePassWithBooster = async (boosterCode: string) => {
+  // 부스터 선택 후 패스 확정 (6라운드는 boosterCode=null)
+  const handlePassWithBooster = async (boosterCode: string | null) => {
     if (!roomId || !playerId) return;
 
     setIsConfirming(true);
     setConfirmError(null);
 
     try {
+      // 파워 소각 먼저 처리
+      if (turnState.burnPowerCount > 0) {
+        for (let i = 0; i < turnState.burnPowerCount; i++) {
+          await roomApi.burnPower(roomId, playerId);
+        }
+      }
+      // 프리 액션 자원 변환 처리 (패스는 메인 액션 없으므로 전부 실행)
+      if (turnState.freeConvertActions && turnState.freeConvertActions.length > 0) {
+        for (const fc of turnState.freeConvertActions) {
+          const isBrain = fc.code.endsWith('_BRAIN');
+          const realCode = isBrain ? fc.code.replace('_BRAIN', '') : fc.code;
+          await roomApi.freeConvert(roomId, playerId, realCode, isBrain || undefined);
+        }
+      }
       const res = await roomApi.passRound(roomId, playerId, boosterCode);
       if (res.data.success) {
         setSelectingPassBooster(false);
-        clearPendingActions(true);  // 프리뷰 유지
-        // 내 패스 순서 기록
-        if (mySeatNo != null) useGameStore.getState().addPassedSeatNo(mySeatNo);
-        // WebSocket 이벤트(TURN_CHANGED/ROUND_STARTED)로 갱신
+        clearPendingActions(true);
       } else {
         setConfirmError(res.data.message || '패스 실패');
       }
@@ -780,6 +1007,10 @@ export default function LobbyPage() {
 
   return (
     <div className="h-screen p-1.5 overflow-hidden">
+      {/* 게임 결과창 */}
+      {showGameResult && roomId && (
+        <GameResultPanel roomId={roomId} onClose={() => setShowGameResult(false)} />
+      )}
       {/* 상단 정보 */}
       <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-700/40">
         <div className="flex items-center gap-2">
@@ -788,7 +1019,7 @@ export default function LobbyPage() {
             onClick={() => window.location.href = '/'}
           >Gaia Project</h1>
           <div className="flex items-center gap-2 text-xs text-gray-400">
-            <span>{nickname}</span>
+            <span>{isSpectator ? <span className="text-yellow-400 font-bold">관전 모드</span> : nickname}</span>
             <span className="text-gray-600">|</span>
             <span className="font-mono text-gray-500">{roomId?.substring(0, 8)}</span>
             <button
@@ -815,7 +1046,7 @@ export default function LobbyPage() {
       {/* 메인 컨텐츠 - 3열 구조, 뷰포트에 꽉 맞춤 */}
       <div className="flex gap-1.5" style={{ height: 'calc(100vh - 36px)' }}>
         {/* 좌측: 플레이어 보드 + 확정 + 지식트랙 + 점수 */}
-        <div className="w-[30%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
+        <div className="w-[25%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
           <SeatSelector
             seats={seats}
             mySeatNo={mySeatNo}
@@ -846,66 +1077,9 @@ export default function LobbyPage() {
             }}
           />
 
-          {/* 게임 시작 버튼 */}
-          {status === 'READY' && seats.every((s) => s.playerId) && !gamePhase && (
-            <button
-              onClick={handleStartGame}
-              className="bg-emerald-600/80 hover:bg-emerald-500/80 text-white py-1.5 px-3 rounded-xl transition font-semibold shadow-lg shadow-emerald-900/30 text-sm"
-            >
-              게임 시작
-            </button>
-          )}
+          {/* 게임 시작은 비딩 완료 후 자동 진행 */}
 
-          {/* 지식 트랙 */}
-          <TechTracks
-            roomId={roomId!}
-            playerStates={playerStates}
-            isMyTurn={isMyTurn}
-            mySeatNo={mySeatNo}
-            gamePhase={gamePhase}
-            refreshKey={techRefreshKey}
-          />
-
-          {/* 라운드 & 최종 점수 */}
-          <ScoringTracks roomId={roomId!} seats={seats} refreshKey={techRefreshKey} />
-        </div>
-
-        {/* 중앙: 맵 */}
-        <div className="w-[40%] min-h-0 min-w-0 overflow-hidden pb-2 relative">
-          <HexMap roomId={roomId!} playerStates={playerStates} seats={seats} />
-          {/* 확정/초기화/패스 - 안내문 배너 오른쪽에 배치 */}
-          <div className="absolute top-0 right-0 z-20" style={{ width: '15%', minWidth: 60 }}>
-            <TurnConfirmationPanel
-              isMyTurn={isMyTurn}
-              gamePhase={gamePhase}
-              pendingActions={turnState.pendingActions}
-              burnPowerCount={turnState.burnPowerCount}
-              previewResources={turnState.previewPlayerState}
-              originalResources={turnState.originalPlayerState}
-              onConfirm={handleConfirmTurn}
-              onRollback={handleRollbackTurn}
-              onPassTurn={handlePassTurn}
-              isConfirming={turnState.isConfirming}
-              error={turnState.confirmError}
-              selectingPassBooster={selectingPassBooster}
-            />
-          </div>
-        </div>
-
-        {/* 우측: 함대 + 파워 + 연방 + 부스터 */}
-        <div className="w-[30%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
-          <FederationTiles
-            roomId={roomId!}
-            playerStates={playerStates}
-            refreshKey={techRefreshKey}
-          />
-          <PowerActions
-            roomId={roomId!}
-            mySeatNo={mySeatNo}
-            isMyTurn={isMyTurn}
-            playerStates={playerStates}
-          />
-          <FederationSupply roomId={roomId!} playerId={playerId} isMyTurn={isMyTurn} refreshKey={techRefreshKey} />
+          {/* 라운드 부스터 */}
           <RoundBoosters
             boosters={boosters}
             mySeatNo={mySeatNo}
@@ -921,6 +1095,66 @@ export default function LobbyPage() {
             isMyTurn={isMyTurn}
             playerStates={playerStates}
           />
+
+          {/* 라운드 & 최종 점수 */}
+          <ScoringTracks roomId={roomId!} seats={seats} refreshKey={techRefreshKey} />
+        </div>
+
+        {/* 중앙: 맵 */}
+        <div className="w-[48%] min-h-0 min-w-0 pb-2 relative">
+          <div className="w-full h-full overflow-hidden">
+            <HexMap roomId={roomId!} playerStates={playerStates} seats={seats} onResultClick={() => setShowGameResult(prev => !prev)} />
+          </div>
+          {/* 확정/초기화/패스 - 맵 우상단 오버레이 */}
+          <div className="absolute top-0 right-0 z-20" style={{ width: '15%', minWidth: 80 }}>
+            <TurnConfirmationPanel
+              isMyTurn={isMyTurn}
+              gamePhase={gamePhase}
+              pendingActions={turnState.pendingActions}
+              burnPowerCount={turnState.burnPowerCount}
+              previewResources={turnState.previewPlayerState}
+              originalResources={turnState.originalPlayerState}
+              onConfirm={handleConfirmTurn}
+              onRollback={handleRollbackTurn}
+              onPassTurn={handlePassTurn}
+              isConfirming={turnState.isConfirming}
+              error={turnState.confirmError}
+              selectingPassBooster={selectingPassBooster}
+            />
+            {/* 고급 타일 커버 선택: 개인판에서 직접 선택 */}
+            {/* COMMON 고급 기술 타일 */}
+            <CommonAdvTile
+              roomId={roomId!}
+              playerStates={playerStates}
+              isMyTurn={isMyTurn}
+              mySeatNo={mySeatNo}
+            />
+          </div>
+        </div>
+
+        {/* 우측: 함대 + 파워 + 연방 + 부스터 */}
+        <div className="w-[27%] flex flex-col gap-1 overflow-y-auto min-h-0 min-w-0 pb-4">
+          <FederationTiles
+            roomId={roomId!}
+            playerStates={playerStates}
+            refreshKey={techRefreshKey}
+          />
+          <PowerActions
+            roomId={roomId!}
+            mySeatNo={mySeatNo}
+            isMyTurn={isMyTurn}
+            playerStates={playerStates}
+          />
+          {/* 지식 트랙 */}
+          <TechTracks
+            roomId={roomId!}
+            playerStates={playerStates}
+            isMyTurn={isMyTurn}
+            mySeatNo={mySeatNo}
+            gamePhase={gamePhase}
+            refreshKey={techRefreshKey}
+          />
+          <FederationSupply roomId={roomId!} playerId={playerId} isMyTurn={isMyTurn} refreshKey={techRefreshKey} />
 
         </div>
       </div>
@@ -945,6 +1179,18 @@ export default function LobbyPage() {
         </div>
       )}
 
+      {deferredAction?.type === 'PLACE_MINE_NO_RANGE' && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-blue-900/90 backdrop-blur-sm border border-blue-500/40 text-blue-100 px-6 py-2.5 rounded-xl z-40 text-sm flex items-center gap-2 shadow-lg shadow-blue-900/20">
+          <span>연방 타일: 거리 제한 없이 광산을 배치할 위치를 선택하세요.</span>
+          <button
+            onClick={() => setDeferredAction(null)}
+            className="text-blue-300 hover:text-white text-xs ml-2"
+          >
+            취소
+          </button>
+        </div>
+      )}
+
       {deferredAction?.type === 'PLACE_MINE_TERRAFORM_3' && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-emerald-900/90 backdrop-blur-sm border border-emerald-500/40 text-emerald-100 px-6 py-2.5 rounded-xl z-40 text-sm flex items-center gap-2 shadow-lg shadow-emerald-900/20">
           <span>연방 타일: 테라포밍 3단계 할인 적용 — 광산을 배치할 위치를 선택하세요.</span>
@@ -957,9 +1203,20 @@ export default function LobbyPage() {
         </div>
       )}
 
+
       {/* 파워 리치 결정 다이얼로그 */}
       {currentPlayerId && (
         <PowerLeechDialog roomId={roomId!} myPlayerId={currentPlayerId} />
+      )}
+
+      {/* 비딩 다이얼로그 */}
+      {currentPlayerId && (
+        <BiddingDialog roomId={roomId!} myPlayerId={currentPlayerId} seats={seats} />
+      )}
+
+      {/* 파워 수입 순서 선택 다이얼로그 */}
+      {currentPlayerId && (
+        <PowerIncomeDialog roomId={roomId!} myPlayerId={currentPlayerId} />
       )}
 
       {/* 팅커로이드 액션 타일 선택 다이얼로그 */}

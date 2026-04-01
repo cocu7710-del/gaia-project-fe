@@ -17,7 +17,12 @@ export type EventType =
   | 'LEECH_DECIDED'
   | 'DEFERRED_ACTION_REQUIRED'
   | 'MAP_ROTATED'
-  | 'STATE_UPDATED';
+  | 'STATE_UPDATED'
+  | 'BIDDING_STARTED'
+  | 'BID_UPDATED'
+  | 'BID_WON'
+  | 'BID_SEAT_PICKED'
+  | 'BIDDING_COMPLETED';
 
 export interface GameEvent {
   roomId: string;

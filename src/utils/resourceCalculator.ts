@@ -1,6 +1,22 @@
 import type { PlayerStateResponse } from '../api/client';
 import type { ResourceCost } from '../types/turnActions';
 
+/** 네블라 PI 파워 2배 활성 여부 (PI 건설 완료 = stockPlanetaryInstitute === 0) */
+export function isNevlasPiActive(state: PlayerStateResponse | null | undefined): boolean {
+  if (!state) return false;
+  return (state as any).factionCode === 'NEVLAS' && (state as any).stockPlanetaryInstitute === 0;
+}
+
+/** 네블라 PI 적용 시 실제 파워 토큰 소비량 (1토큰 = 2파워) */
+export function nevlasPowerTokens(powerCost: number, isNevPi: boolean): number {
+  return isNevPi && powerCost > 0 ? Math.ceil(powerCost / 2) : powerCost;
+}
+
+/** 네블라 PI 적용 시 유효 파워 (bowl3 기준) */
+export function effectiveBowl3Power(bowl3: number, isNevPi: boolean): number {
+  return isNevPi ? bowl3 * 2 : bowl3;
+}
+
 export class ResourceCalculator {
   static canAfford(
     playerState: PlayerStateResponse,
@@ -21,9 +37,7 @@ export class ResourceCalculator {
     cost: ResourceCost
   ): PlayerStateResponse {
     const powerCost = cost.power || 0;
-    // 네블라 PI: bowl3 토큰 1개 = 2파워 (올림 계산)
-    const isNevlasPi = (state as any).factionCode === 'NEVLAS' && (state as any).stockPlanetaryInstitute === 0;
-    const actualTokens = isNevlasPi && powerCost > 0 ? Math.ceil(powerCost / 2) : powerCost;
+    const actualTokens = nevlasPowerTokens(powerCost, isNevlasPiActive(state));
     return {
       ...state,
       credit: state.credit - (cost.credit || 0),

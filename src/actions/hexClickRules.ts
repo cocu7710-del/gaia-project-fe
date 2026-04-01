@@ -16,6 +16,10 @@ import { HOME_PLANET_TYPES, getTerraformDiscount, getNavBonus } from '../utils/t
 import { getNavigationCost, navLevelToRange, getNavRangeBonus } from '../utils/navigationCalculator';
 import { calcMineCost } from '../utils/mineActionCalculator';
 import { calcUpgradeCost } from '../utils/upgradeCalculator';
+import { useGameStore } from '../store/gameStore';
+import { hasTechTileGrantingPending, hasBlockingOtherPending, calcMinePlacementModifiers } from './pendingAnalyzer';
+
+function _getLatestFedMode() { return useGameStore.getState().federationMode; }
 
 // ============================================================
 // 공통 타입
@@ -87,16 +91,25 @@ function ruleFederationMode(ctx: HexClickContext): RuleResult {
   if (!ctx.federationMode) return SKIP;
 
   if (ctx.federationMode.phase === 'SELECT_BUILDINGS') {
-    const building = ctx.buildingByCoord.get(`${ctx.hex.hexQ},${ctx.hex.hexR}`);
-    return { clickable: !!building && building.playerId === ctx.playerId, handled: true };
+    // 란티다 기생 건물 포함 — 같은 좌표에 내 건물이 하나라도 있으면 선택 가능
+    const myBuilding = ctx.buildings?.some(
+      (b: any) => b.hexQ === ctx.hex.hexQ && b.hexR === ctx.hex.hexR && b.playerId === ctx.playerId
+    );
+    return { clickable: !!myBuilding, handled: true };
   }
 
   if (ctx.federationMode.phase === 'PLACE_TOKENS') {
     if (ctx.hex.planetType !== 'EMPTY') return { clickable: false, handled: true };
+    // 우주선 헥스 차단
+    const sectorId = getSectorIdFromHex(ctx.hex, ctx);
+    if (sectorId?.startsWith('FORGOTTEN_FLEET_')) return { clickable: false, handled: true };
     const building = ctx.buildingByCoord.get(`${ctx.hex.hexQ},${ctx.hex.hexR}`);
     if (building?.playerId === ctx.playerId) return { clickable: false, handled: true };
     return { clickable: true, handled: true };
   }
+
+  // PLACE_SPECIAL_MINE: 광산 배치 모드 → 일반 광산 규칙으로 넘김
+  if (ctx.federationMode.phase === 'PLACE_SPECIAL_MINE') return SKIP;
 
   return { clickable: false, handled: true }; // SELECT_TILE 등
 }
@@ -125,7 +138,8 @@ function ruleFleetShipMode(ctx: HexClickContext): RuleResult {
 
   if (ctx.fleetShipMode.needsGaiaformHex) {
     if (ctx.hex.planetType !== 'TRANSDIM' || building) return { clickable: false, handled: true };
-    if (!myState || myState.stockGaiaformer <= 0) return { clickable: false, handled: true };
+    if (!myState) return { clickable: false, handled: true };
+    // 가이아포머 보유 여부는 버튼 클릭 시 이미 검증됨 (preview 차감 후 재검증하면 항상 0)
     return { clickable: checkNavReachable(ctx, myState), handled: true };
   }
 
@@ -258,7 +272,7 @@ function ruleLostPlanet(ctx: HexClickContext): RuleResult {
 function ruleTerraform2Mine(ctx: HexClickContext): RuleResult {
   const pending = ctx.pendingActions;
   const TERRAFORM_2_TILES = ['BASIC_EXP_TILE_3'];
-  const isActive = pending.some(a => a.type === 'UPGRADE_BUILDING')
+  const isActive = hasTechTileGrantingPending(pending)
     && ctx.tentativeTechTileCode != null
     && TERRAFORM_2_TILES.includes(ctx.tentativeTechTileCode)
     && !pending.some(a => a.type === 'PLACE_MINE');
@@ -278,19 +292,21 @@ function ruleTerraform2Mine(ctx: HexClickContext): RuleResult {
   const myState = getMyState(ctx);
   if (!myState || myState.stockMine <= 0) return { clickable: false, handled: true };
 
-  // 2삽 할인 적용
   const navBonus = getNavBonus(pending);
+  // previewPlayerState는 광산 미배치 상태에서 트랙 전진 미적용 → myState.techNavigation = 원래 레벨
   const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(ctx.techTileData, ctx.playerId) + navBonus;
   const myBuildings = getMyBuildings(ctx);
   const { reachable, qicNeeded: navQic } = getNavigationCost(ctx.hex.hexQ, ctx.hex.hexR, myBuildings, effectiveNavRange, myState.qic);
   if (!reachable) return { clickable: false, handled: true };
 
+  // 2삽 기술타일: 기본 광산비용(2c+1o) 무료, 2단계 초과 테라포밍 비용만 체크
   const result = calcMineCost(
     ctx.hex.planetType, ctx.mySeat!.raceCode, ctx.mySeat!.homePlanetType,
     myState.techTerraforming, 2, myState, ctx.seats, navQic,
     ctx.tinkeroidsExtraRingPlanet, ctx.moweidsExtraRingPlanet,
   );
-  return { clickable: result.possible, handled: true };
+  const remainingOre = Math.max(0, result.ore - 1);
+  return { clickable: myState.qic >= navQic && myState.ore >= remainingOre, handled: true };
 }
 
 // ============================================================
@@ -371,7 +387,13 @@ function ruleBuildingHex(ctx: HexClickContext): RuleResult {
 
   // 내 건물 업그레이드
   if (ctx.gamePhase === 'PLAYING' && building.playerId === ctx.playerId && !hasPendingTerraform && !hasPendingNavBoost) {
-    const options = UPGRADE_OPTIONS[building.buildingType];
+    const isBescodsRule = ctx.mySeat?.raceCode === 'BESCODS';
+    let options = UPGRADE_OPTIONS[building.buildingType];
+    if (isBescodsRule && building.buildingType === 'TRADING_STATION') {
+      options = ['RESEARCH_LAB', 'ACADEMY_KNOWLEDGE', 'ACADEMY_QIC'];
+    } else if (isBescodsRule && building.buildingType === 'RESEARCH_LAB') {
+      options = ['PLANETARY_INSTITUTE'];
+    }
     if (!options) return { clickable: false, handled: true };
     const myState = getMyState(ctx);
     if (!myState) return { clickable: true, handled: true };
@@ -444,24 +466,21 @@ function rulePlayingMine(ctx: HexClickContext): RuleResult {
   if (!myState || myState.stockMine <= 0) return { clickable: false, handled: true };
 
   const pending = ctx.pendingActions;
-  let terraformDiscount = getTerraformDiscount(pending);
-  const navBonus = getNavBonus(pending);
-
-  // 2삽 기술 타일 할인 (UPGRADE_BUILDING + tentativeTechTileCode)
-  const TERRAFORM_2_TILES = ['BASIC_EXP_TILE_3'];
-  if (terraformDiscount === 0 && pending.some(a => a.type === 'UPGRADE_BUILDING')
-    && ctx.tentativeTechTileCode && TERRAFORM_2_TILES.includes(ctx.tentativeTechTileCode)) {
-    terraformDiscount = 2;
-  }
+  const mods = calcMinePlacementModifiers(pending, ctx.tentativeTechTileCode);
 
   const myBuildings = getMyBuildings(ctx);
-  const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(ctx.techTileData, ctx.playerId) + navBonus;
+  const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(ctx.techTileData, ctx.playerId) + mods.navBonus;
   const { reachable, qicNeeded: navQic } = getNavigationCost(ctx.hex.hexQ, ctx.hex.hexR, myBuildings, effectiveNavRange, myState.qic);
   if (!reachable) return { clickable: false, handled: true };
 
+  if (mods.isFreeMine) {
+    // 광산 비용 무료 — 거리만 체크 (FED_EXP_TILE_5: 3삽, FED_EXP_TILE_7: 무한거리)
+    return { clickable: true, handled: true };
+  }
+
   const result = calcMineCost(
     ctx.hex.planetType, ctx.mySeat!.raceCode, ctx.mySeat!.homePlanetType,
-    myState.techTerraforming, terraformDiscount, myState, ctx.seats, navQic,
+    myState.techTerraforming, mods.terraformDiscount, myState, ctx.seats, navQic,
     ctx.tinkeroidsExtraRingPlanet, ctx.moweidsExtraRingPlanet,
   );
   return { clickable: result.possible, handled: true };
@@ -472,31 +491,7 @@ function rulePlayingMine(ctx: HexClickContext): RuleResult {
 // ============================================================
 
 function computeHasOtherPending(ctx: HexClickContext): boolean {
-  const pending = ctx.pendingActions;
-  if (pending.length === 0) return false;
-
-  const terraformDiscount = getTerraformDiscount(pending);
-  const navBonus = getNavBonus(pending);
-  const hasPendingTerraform = terraformDiscount > 0 && !pending.some(a => a.type === 'PLACE_MINE');
-  const hasPendingNavBoost = navBonus > 0 && !pending.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-  const boosterAct = pending.find(a => a.type === 'BOOSTER_ACTION') as BoosterAction | undefined;
-  const hasPendingGaiaformerBooster = boosterAct?.payload.actionType === 'PLACE_GAIAFORMER' && !pending.some(a => a.type === 'PLACE_MINE');
-  const ivitsPending = pending.some(a => a.type === 'FACTION_ABILITY' && a.payload?.abilityCode === 'IVITS_PLACE_STATION') && !pending.some(a => a.type === 'PLACE_MINE');
-  const firaksPending = pending.some(a => a.type === 'FACTION_ABILITY' && a.payload?.abilityCode === 'FIRAKS_DOWNGRADE' && !a.payload?.hexQ);
-  const ambasPending = pending.some(a => a.type === 'FACTION_ABILITY' && a.payload?.abilityCode === 'AMBAS_SWAP' && !a.payload?.hexQ);
-  const moweidsRingPending = pending.some(a => a.type === 'FACTION_ABILITY' && a.payload?.abilityCode === 'MOWEIDS_RING' && !a.payload?.hexQ);
-
-  // 2삽 기술 타일 → 광산 배치 대기 (UPGRADE_BUILDING pending + tentativeTechTileCode 매칭)
-  const TERRAFORM_2_TILE_CODES = ['BASIC_EXP_TILE_3'];
-  const terraform2MinePending = pending.some(a => a.type === 'UPGRADE_BUILDING')
-    && ctx.tentativeTechTileCode != null
-    && TERRAFORM_2_TILE_CODES.includes(ctx.tentativeTechTileCode)
-    && !pending.some(a => a.type === 'PLACE_MINE');
-
-  const lostPlanetPending = pending.some(a => a.type === 'PLACE_LOST_PLANET' && a.payload?.hexQ == null);
-
-  return pending.length > 0 && !hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster
-    && !ivitsPending && !firaksPending && !ambasPending && !moweidsRingPending && !terraform2MinePending && !lostPlanetPending;
+  return hasBlockingOtherPending(ctx.pendingActions, ctx.tentativeTechTileCode);
 }
 
 // ============================================================
@@ -529,6 +524,8 @@ const RULES = [
 ];
 
 export function isHexClickable(ctx: HexClickContext): boolean {
+  // federationMode를 최신 store 상태로 덮어쓰기 (closure 캐시 문제 방지)
+  ctx = { ...ctx, federationMode: _getLatestFedMode() };
   for (const rule of RULES) {
     const result = rule(ctx);
     if (result.handled) return result.clickable;

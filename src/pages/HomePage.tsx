@@ -7,7 +7,8 @@ export default function HomePage() {
   const navigate = useNavigate();
   const { setRoomInfo, setPlayerInfo } = useGameStore();
 
-  const [mode, setMode] = useState<'select' | 'create' | 'join'>('select');
+  const [mode, setMode] = useState<'select' | 'create' | 'join' | 'spectate'>('select');
+  const [spectateRoomCode, setSpectateRoomCode] = useState('');
   const [title, setTitle] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [nickname, setNickname] = useState('');
@@ -135,6 +136,12 @@ export default function HomePage() {
           >
             방 참가하기
           </button>
+          <button
+            onClick={() => setMode('spectate')}
+            className="bg-gray-600/80 hover:bg-gray-500/80 text-white py-3 px-6 rounded-xl text-lg transition font-medium"
+          >
+            관전하기
+          </button>
         </div>
       )}
 
@@ -200,6 +207,34 @@ export default function HomePage() {
           <button
             onClick={() => setMode('select')}
             className="text-gray-500 hover:text-gray-300 transition text-sm"
+          >
+            뒤로
+          </button>
+        </div>
+      )}
+      {mode === 'spectate' && (
+        <div className="game-panel flex flex-col gap-3 w-full max-w-xs">
+          <h2 className="text-lg font-semibold text-center text-gray-200">관전하기</h2>
+          <input
+            type="text"
+            placeholder="방 ID (UUID)"
+            value={spectateRoomCode}
+            onChange={(e) => setSpectateRoomCode(e.target.value)}
+            className="bg-gray-800/80 text-white px-4 py-2.5 rounded-lg border border-gray-700/50 focus:outline-none focus:ring-2 focus:ring-gray-500/50 placeholder-gray-500"
+          />
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+          <button
+            onClick={() => {
+              if (!spectateRoomCode.trim()) { setError('방 ID를 입력해주세요.'); return; }
+              navigate(`/lobby/${spectateRoomCode.trim()}`);
+            }}
+            className="bg-gray-600 hover:bg-gray-500 text-white py-2.5 px-4 rounded-xl transition font-medium"
+          >
+            관전 입장
+          </button>
+          <button
+            onClick={() => { setMode('select'); setError(''); }}
+            className="text-gray-500 hover:text-gray-300 text-sm transition"
           >
             뒤로
           </button>

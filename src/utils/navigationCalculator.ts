@@ -15,7 +15,7 @@ export function navLevelToRange(level: number): number {
 export function getNavRangeBonus(techTileData: any, playerId: string | null): number {
   if (!techTileData || !playerId) return 0;
   const hasTile = techTileData.basicTiles?.some(
-    (t: any) => t.tileCode === 'BASIC_EXP_TILE_1' && t.takenByPlayerId === playerId
+    (t: any) => t.tileCode === 'BASIC_EXP_TILE_1' && (t.ownerPlayerIds ?? []).includes(playerId)
   );
   return hasTile ? 1 : 0;
 }

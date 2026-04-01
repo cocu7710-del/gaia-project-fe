@@ -95,70 +95,69 @@ const FLEET_LAYOUTS: Record<string, FleetLayout> = {
   TF_MARS: {
     aspectRatio: 24,
     playerTokens: [
-      { left: 21.5, top: 25 },
-      { left: 21.5, top: 45 },
-      { left: 21.5, top: 64 },
-      { left: 21.5, top: 84 },
+      { left: 21.7, top: 22.6 },
+      { left: 21.7, top: 42.6 },
+      { left: 21.7, top: 61.6 },
+      { left: 21.7, top: 81.6 },
     ],
     actions: [
       { type: 'green',  left: 37.5, top: 38, color: '#22c55e', code: 'FLEET_TF_MARS_1', description: 'QIC 2 → 보유 기술 타일당 1VP + 2VP',          cost: { qic: 2 },    gain: {} },
       { type: 'purple', left: 49,   top: 38, color: '#a855f7', code: 'FLEET_TF_MARS_2', description: '파워 2 → 즉시 가이아 포밍 (가이아 포머)',         cost: { power: 2 },  gain: {} },
       { type: 'yellow', left: 60,   top: 38, color: '#eab308', code: 'FLEET_TF_MARS_3', description: '크레딧 3 → 테라포밍 1',                         cost: { credit: 3 }, gain: {} },
     ],
-    federationToken: { left: 69.5, top: 77 },
-    techTile: { left: 82, top: 50 },
+    federationToken: { left: 68, top: 80 },
+    techTile: { left: 80, top: 45 },
     techTilePosition: 10,
   },
   ECLIPSE: {
     aspectRatio: 24,
     playerTokens: [
-      { left: 29.3, top: 25 },
-      { left: 29.3, top: 45 },
-      { left: 29.3, top: 64 },
-      { left: 29.3, top: 84 },
+      { left: 29.5, top: 22.6 },
+      { left: 29.5, top: 42.6 },
+      { left: 29.5, top: 61.6 },
+      { left: 29.5, top: 81.6 },
     ],
     actions: [
       { type: 'green',  left: 41,   top: 45, color: '#22c55e', code: 'FLEET_ECLIPSE_1', description: 'QIC 2 → 보유 행성 종류당 1VP + 2VP',  cost: { qic: 2 },    gain: {} },
       { type: 'purple', left: 52,   top: 45, color: '#a855f7', code: 'FLEET_ECLIPSE_2', description: '파워 3, 지식 2 → 지식 트랙 전진',     cost: { power: 3, knowledge: 2 }, gain: {} },
       { type: 'yellow', left: 63.5, top: 45, color: '#eab308', code: 'FLEET_ECLIPSE_3', description: '크레딧 6 → 소행성에 무료 광산',        cost: { credit: 6 }, gain: {} },
     ],
-    federationToken: { left: 69.5, top: 79 },
+    federationToken: { left: 70, top: 85 },
     techTile: { left: 80, top: 38 },
     techTilePosition: 11,
   },
   REBELLION: {
     aspectRatio: 24,
     playerTokens: [
-      { left: 20.5, top: 25 },
-      { left: 20.5, top: 45 },
-      { left: 20.5, top: 64 },
-      { left: 20.5, top: 84 },
+      { left: 20.7, top: 22.6 },
+      { left: 20.7, top: 42.6 },
+      { left: 20.7, top: 61.6 },
+      { left: 20.7, top: 81.6 },
     ],
     actions: [
       { type: 'green',  left: 35.5, top: 60, color: '#22c55e', code: 'FLEET_REBELLION_1', description: 'QIC 3 → 기본 기술 타일 가져오기',              cost: { qic: 3 },              gain: {} },
       { type: 'purple', left: 47,   top: 60, color: '#a855f7', code: 'FLEET_REBELLION_2', description: '파워 3, 광석 1 → 광산을 교역소로 업그레이드', cost: { power: 3, ore: 1 },    gain: {} },
       { type: 'blue',   left: 58,   top: 60, color: '#3b82f6', code: 'FLEET_REBELLION_3', description: '지식 2 → QIC 1, 크레딧 2 획득',               cost: { knowledge: 2 },        gain: { qic: 1, credit: 2 } },
     ],
-    federationToken: { left: 68.5, top: 65 },
+    federationToken: { left: 68.5, top: 71 },
     techTile: { left: 83, top: 51 },
     techTilePosition: 12,
   },
   TWILIGHT: {
     aspectRatio: 24,
     playerTokens: [
-      { left: 22.5, top: 25 },
-      { left: 22.5, top: 45 },
-      { left: 22.5, top: 64 },
-      { left: 22.5, top: 84 },
+      { left: 22.7, top: 22.6 },
+      { left: 22.7, top: 42.6 },
+      { left: 22.7, top: 61.6 },
+      { left: 22.7, top: 81.6 },
     ],
     actions: [
       { type: 'green',  left: 33, top: 54, color: '#22c55e', code: 'FLEET_TWILIGHT_1', description: 'QIC 3 → 보유한 연방 토큰 보상 1회 받기',          cost: { qic: 3 },           gain: {} },
       { type: 'purple', left: 44, top: 54, color: '#a855f7', code: 'FLEET_TWILIGHT_2', description: '파워 3, 광석 2 → 교역소를 연구소로 업그레이드', cost: { power: 3, ore: 2 }, gain: {} },
       { type: 'blue',   left: 55, top: 54, color: '#3b82f6', code: 'FLEET_TWILIGHT_3', description: '지식 1 → 즉시 +3 항해 거리 사용',                cost: { knowledge: 1 },     gain: {} },
     ],
-    federationToken: { left: 61, top: 82 },
+    federationToken: { left: 62, top: 87 },
     techTile: null,
-    // 인공물 슬롯 4개 (오른쪽 타원형)
     artifacts: [
       { left: 75, top: 28 },
       { left: 92, top: 28 },
@@ -378,8 +377,11 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
 
   // 기술 타일 선택 모드 활성화 여부 (연구소/아카데미/리벨리온 3QIC)
   const isTechPickActive = isMyTurn && !tentativeTechTileCode && turnState.pendingActions.some(
-    a => (a.type === 'UPGRADE_BUILDING' && (a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'))
+    a => (a.type === 'UPGRADE_BUILDING' && (a.payload.toType === 'TRADING_STATION' || a.payload.toType === 'RESEARCH_LAB' || a.payload.toType === 'ACADEMY'))
       || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'REBELLION_TECH' && !(a.payload as any).trackCode)
+      || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'TWILIGHT_UPGRADE' && (a.payload as any).hexQ != null)
+      || (a.type === 'FLEET_SHIP_ACTION' && (a.payload as any).actionCode === 'ECLIPSE_TECH')
+      || (a.type === 'FORM_FEDERATION' && a.payload.tileCode === 'FED_EXP_TILE_1')
   );
 
   // pending 중인 파워 액션 + 함대 액션 코드 추적
@@ -399,7 +401,15 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
       };
       return map[actionCode] ?? actionCode;
     });
-  const usedCodes = new Set([...usedPowerActionCodes, ...usedInPending, ...usedFleetInPending]);
+  const fleetCodeMap: Record<string, string> = {
+    TF_MARS_VP: 'FLEET_TF_MARS_1', TF_MARS_GAIAFORM: 'FLEET_TF_MARS_2', TF_MARS_TERRAFORM: 'FLEET_TF_MARS_3',
+    ECLIPSE_VP: 'FLEET_ECLIPSE_1', ECLIPSE_TECH: 'FLEET_ECLIPSE_2', ECLIPSE_MINE: 'FLEET_ECLIPSE_3',
+    REBELLION_TECH: 'FLEET_REBELLION_1', REBELLION_UPGRADE: 'FLEET_REBELLION_2', REBELLION_CONVERT: 'FLEET_REBELLION_3',
+    TWILIGHT_FED: 'FLEET_TWILIGHT_1', TWILIGHT_UPGRADE: 'FLEET_TWILIGHT_2', TWILIGHT_NAV: 'FLEET_TWILIGHT_3',
+  };
+  // BE에서 반환되는 usedPowerActionCodes에 함대 코드(BE 형식)도 포함 → FE 코드로 매핑
+  const usedPowerMapped = usedPowerActionCodes.map(c => fleetCodeMap[c] ?? c);
+  const usedCodes = new Set([...usedPowerMapped, ...usedInPending, ...usedFleetInPending]);
   const hasPendingAction = turnState.pendingActions.length > 0;
 
   const currentPlayerState = turnState.previewPlayerState ?? null;
@@ -490,6 +500,27 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
     }
 
     // 즉시(immediate) 또는 split(terraform/nav) 액션 → FLEET_SHIP_ACTION pending 추가
+    // VP 액션: 동적으로 gain 계산
+    let resolvedGain: Record<string, number> = { ...config.gain };
+    if (meta.fshCode === 'TF_MARS_VP') {
+      const storeState = useGameStore.getState();
+      const td = storeState.techTileData;
+      const pid = myPlayerId ?? '';
+      const basicCount = td?.basicTiles.filter(t => (t.ownerPlayerIds ?? []).includes(pid)).length ?? 0;
+      const advCount = td?.advancedTiles.filter(t => t.takenByPlayerId === pid).length ?? 0;
+      resolvedGain = { vp: basicCount + advCount + 2 };
+    } else if (meta.fshCode === 'ECLIPSE_VP') {
+      const storeState = useGameStore.getState();
+      const myBuildings = storeState.buildings.filter(b => b.playerId === myPlayerId);
+      const planetTypes = new Set<string>();
+      for (const b of myBuildings) {
+        const hex = storeState.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
+        if (hex && hex.planetType !== 'EMPTY' && hex.planetType !== 'TRANSDIM' && hex.planetType !== 'GAIA') {
+          planetTypes.add(hex.planetType);
+        }
+      }
+      resolvedGain = { vp: planetTypes.size + 2 };
+    }
     const action: FleetShipAction = {
       id: `fsa-${Date.now()}-${Math.random()}`,
       type: 'FLEET_SHIP_ACTION',
@@ -498,6 +529,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
         fleetName: meta.fleetName,
         actionCode: meta.fshCode,
         cost: config.cost,
+        gain: resolvedGain,
         isImmediate: meta.isImmediate,
         terraformDiscount: meta.terraformDiscount,
         navBonus: meta.navBonus,
@@ -510,6 +542,8 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
   // 우주선 연방 토큰 클릭 → pendingAction에 추가 (확정 버튼으로 처리)
   const handleSelectFedTile = (tileCode: string) => {
     if (!federationMode || !myPlayerId) return;
+    const { pendingActions } = useGameStore.getState().turnState;
+    if (pendingActions.some(a => a.type === 'FORM_FEDERATION')) return;
     addPendingAction({
       id: `action-${Date.now()}-${Math.random()}`,
       type: 'FORM_FEDERATION',
@@ -520,6 +554,12 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
         selectedBuildings: federationMode.selectedBuildings,
       },
     });
+    // 3삽 광산 / 무한거리 광산: 광산 배치 phase로 전환 (프리뷰 유지)
+    if (tileCode === 'FED_EXP_TILE_5' || tileCode === 'FED_EXP_TILE_7') {
+      useGameStore.setState((s) => ({
+        federationMode: s.federationMode ? { ...s.federationMode, phase: 'PLACE_SPECIAL_MINE' as const, specialTileCode: tileCode } : null,
+      }));
+    }
   };
 
   // 함대 기술 타일 클릭 핸들러 → TechTracks의 트랙 클릭으로 트랙 지정
@@ -543,7 +583,7 @@ export default function FederationTiles({ roomId, playerStates = [], refreshKey 
             usedCodes={usedCodes}
             currentPlayerState={currentPlayerState as any}
             onActionClick={(config) => handleActionClick(ship.fleetCode, config)}
-            isTechTileClickable={isTechPickActive && hasEntered && !!ship.techTile && !ship.techTile.isTaken}
+            isTechTileClickable={isTechPickActive && hasEntered && !!ship.techTile && !(ship.techTile.ownerPlayerIds ?? []).includes(myPlayerId ?? '')}
             onTechTileClick={() => ship.techTile && handleFleetTechTileClick(ship.techTile.tileCode)}
             isFedTokenClickable={federationMode?.phase === 'SELECT_TILE' && hasEntered && !!ship.federationToken}
             onFedTokenClick={() => ship.federationToken && handleSelectFedTile(ship.federationToken)}
@@ -646,21 +686,19 @@ interface PlayerTokenSlotsProps {
   positions: SlotPosition[];
 }
 
-/** UFO 이미지를 플레이어 색상으로 colorize — 형태만 유지하고 색상 채움 */
-function ColorizedUfo({ color, size = 20, opacity = 1 }: { color: string; size?: number; opacity?: number }) {
-  const filterId = `ufo-${color.replace('#', '')}-${size}`;
+/** 플레이어 색상 동그라미 */
+function ColorizedUfo({ color, size, opacity = 1 }: { color: string; size?: number; opacity?: number }) {
   return (
-    <svg width={size} height={size} style={{ display: 'inline-block', opacity }}>
-      <defs>
-        <filter id={filterId}>
-          {/* 플레이어 색으로 채움 */}
-          <feFlood floodColor={color} result="fill" />
-          {/* 원본 알파(형태)만 남겨서 합성 */}
-          <feComposite in="fill" in2="SourceGraphic" operator="in" />
-        </filter>
-      </defs>
-      <image href={ufoImg} x="0" y="0" width={size} height={size} filter={`url(#${filterId})`} />
-    </svg>
+    <div
+      style={{
+        width: size ?? '0.8vw', height: size ?? '0.8vw',
+        minWidth: 10, minHeight: 10,
+        borderRadius: '50%',
+        backgroundColor: color, opacity,
+        border: '2px solid rgba(255,255,255,0.6)',
+        boxSizing: 'border-box',
+      }}
+    />
   );
 }
 
@@ -686,11 +724,10 @@ function PlayerTokenSlots({ tokens, positions }: PlayerTokenSlotsProps) {
             {hasPlayer ? (
               <ColorizedUfo
                 color={token!.color!}
-                size={20}
                 opacity={token!.isTentative ? 0.75 : 1}
               />
             ) : (
-              <div className="w-3 h-3 rounded-full border border-white/30 bg-black/20" />
+              <div className="w-3 h-3 rounded-full border border-white/10" />
             )}
           </div>
         );
@@ -720,11 +757,16 @@ function ActionButtons({ layout, hasEntered, canAct, usedCodes, currentPlayerSta
         if (config.code === 'FLEET_TF_MARS_2' && currentPlayerState && (currentPlayerState.stockGaiaformer ?? 0) <= 0) {
           affordable = false;
         }
-        // 네블라 PI: 3구역 파워 2배
+        // 네블라 PI: 3구역 파워 2배 (파워만 재체크, 다른 자원은 여전히 확인)
         if (!affordable && currentPlayerState && config.cost.power
             && (currentPlayerState as any).factionCode === 'NEVLAS'
             && (currentPlayerState as any).stockPlanetaryInstitute === 0) {
-          affordable = (currentPlayerState.powerBowl3 ?? 0) * 2 >= config.cost.power;
+          const pw = (currentPlayerState.powerBowl3 ?? 0) * 2 >= config.cost.power;
+          const cr = currentPlayerState.credit >= (config.cost.credit || 0);
+          const or = currentPlayerState.ore >= (config.cost.ore || 0);
+          const kn = currentPlayerState.knowledge >= (config.cost.knowledge || 0);
+          const qc = currentPlayerState.qic >= (config.cost.qic || 0);
+          affordable = pw && cr && or && kn && qc;
         }
         // 타클론: 브레인스톤 bowl3 +3
         if (!affordable && currentPlayerState && config.cost.power
@@ -800,8 +842,8 @@ function TechTileSlot({ techTile, position, isClickable, onClick }: TechTileSlot
       style={{
         left: `${position.left}%`,
         top: `${position.top}%`,
-        width: '18%',
-        height: '70%',
+        width: '15%',
+        height: '65%',
         transform: 'translate(-50%, -50%)',
       }}
     >
@@ -850,8 +892,8 @@ function FederationTokenSlot({ tokenCode, position, isClickable, onClick }: Fede
       style={{
         left: `${position.left}%`,
         top: `${position.top}%`,
-        width: '11%',
-        height: '33%',
+        width: '10.8%',
+        height: '42.8%',
         transform: 'translate(-50%, -50%)',
       }}
     >
@@ -921,8 +963,8 @@ function ArtifactSlots({ artifacts, positions, onArtifactClick, disabledArtifact
             style={{
               left: `${pos.left}%`,
               top: `${pos.top}%`,
-              width: '12%',
-              height: '35%',
+              width: '14%',
+              height: '42%',
               transform: 'translate(-50%, -50%)',
             }}
             onClick={canClick ? () => onArtifactClick(artifact!.artifactCode!) : undefined}

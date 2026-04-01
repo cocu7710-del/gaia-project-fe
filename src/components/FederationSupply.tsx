@@ -64,7 +64,9 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
 
   const handleSelectTile = (tileCode: string) => {
     if (!federationMode || !playerId) return;
-    const { addPendingAction } = useGameStore.getState();
+    const { addPendingAction, turnState: ts } = useGameStore.getState();
+    // 중복 클릭 방지
+    if (ts.pendingActions.some(a => a.type === 'FORM_FEDERATION')) return;
     addPendingAction({
       id: `action-${Date.now()}-${Math.random()}`,
       type: 'FORM_FEDERATION',
@@ -75,7 +77,12 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
         selectedBuildings: federationMode.selectedBuildings,
       },
     });
-    // federationMode는 유지 (확정/초기화 시 정리)
+    // 3삽 광산 / 무한거리 광산: 광산 배치 phase로 전환 (프리뷰 유지)
+    if (tileCode === 'FED_EXP_TILE_5' || tileCode === 'FED_EXP_TILE_7') {
+      useGameStore.setState((s) => ({
+        federationMode: s.federationMode ? { ...s.federationMode, phase: 'PLACE_SPECIAL_MINE' as const, specialTileCode: tileCode } : null,
+      }));
+    }
   };
 
   if (tiles.length === 0) return null;
@@ -84,105 +91,38 @@ export default function FederationSupply({ roomId, playerId, isMyTurn, refreshKe
     <div className="game-panel">
       <div className="flex items-center justify-between mb-1">
         <h4 className="text-[10px] font-bold text-gray-400">연방 타일</h4>
-        {!federationMode && (
-          <button
-            onClick={handleDeclare}
-            disabled={!canDeclare}
-            className={`text-[8px] px-1.5 py-0.5 rounded border font-bold transition
-              ${canDeclare
-                ? 'border-orange-500 text-orange-300 hover:bg-orange-500/20 cursor-pointer'
-                : 'border-gray-600 text-gray-600 cursor-not-allowed'
-              }`}
-          >
-            연방 선언
-          </button>
-        )}
-        {federationMode && (
-          <button
-            onClick={handleCancel}
-            className="text-[8px] px-1.5 py-0.5 rounded border border-red-500 text-red-300 hover:bg-red-500/20 cursor-pointer font-bold"
-          >
-            취소
-          </button>
-        )}
       </div>
 
-      {/* 건물 선택 단계 */}
-      {federationMode?.phase === 'SELECT_BUILDINGS' && (
-        <div className="mb-1 p-1 bg-orange-900/50 border border-orange-600/30 rounded text-[8px] text-orange-200">
-          맵에서 연방에 포함할 <b>내 건물</b>을 클릭하세요.
-          <span className="ml-1 text-yellow-300">선택: {federationMode.selectedBuildings?.length ?? 0}개</span>
-          <br/>
-          <button onClick={async () => {
-            if (!federationMode || !playerId) return;
-            try {
-              const res = await roomApi.validateFederationBuildings(roomId, playerId, federationMode.selectedBuildings);
-              if (!res.data.success) {
-                alert(res.data.message ?? '건물 선택 조건 미충족');
-                return;
-              }
-              setMinTokens(res.data.minTokens ?? 0);
-              setFederationPhase('PLACE_TOKENS');
-            } catch (e: any) {
-              alert(e?.response?.data?.message ?? '검증 오류');
-            }
-          }}
-            className="mt-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[8px] font-bold cursor-pointer">
-            토큰 배치로 →
-          </button>
-        </div>
-      )}
-
-      {/* 토큰 배치 단계 */}
-      {isPlacingTokens && (() => {
-        const preview = turnState.previewPlayerState;
-        const remaining = isIvits
-          ? (preview?.qic ?? 0)
-          : ((preview?.powerBowl1 ?? 0) + (preview?.powerBowl2 ?? 0) + (preview?.powerBowl3 ?? 0));
-        return (
-          <div className="mb-1 p-1 bg-blue-900/50 border border-blue-600/30 rounded text-[8px] text-blue-200">
-            빈 헥스를 클릭하여 {isIvits ? 'QIC' : '파워 토큰'}으로 건물을 연결하세요.
-            <span className="ml-1 text-yellow-300">최단거리: {minTokens}</span>
-            <span className="ml-1 text-gray-400">남은 {isIvits ? 'QIC' : '토큰'}: {remaining}</span>
-            <br/>
-            <button onClick={handleConfirmPlacement}
-              className="mt-1 px-2 py-0.5 bg-orange-600 hover:bg-orange-500 text-white rounded text-[8px] font-bold cursor-pointer">
-              배치 완료
-            </button>
-          </div>
-        );
-      })()}
-
-      {/* 타일 선택 단계 */}
-      {isSelectingTile && (
-        <div className="mb-1 p-1 bg-orange-900/50 border border-orange-600/30 rounded text-[8px] text-orange-200">
-          연방 타일을 선택하세요.
-        </div>
-      )}
+      {/* 건물 선택/토큰 배치/타일 선택 안내는 맵 중앙 배너에서 처리 */}
 
       {/* 타일 목록 */}
       <div className="flex flex-wrap gap-1 justify-center">
         {tiles.map((tile) => {
           const imgSrc = FEDERATION_TOKEN_IMAGE_MAP[tile.tileCode];
           const isEmpty = tile.quantity <= 0;
-          const canSelect = isSelectingTile && !isEmpty;
+          const fedPending = turnState.pendingActions.find(a => a.type === 'FORM_FEDERATION');
+          const alreadySelected = !!fedPending;
+          const isThisSelected = fedPending && (fedPending.payload as any)?.tileCode === tile.tileCode;
+          const canSelect = isSelectingTile && !isEmpty && !alreadySelected;
           return (
             <div
               key={tile.tileCode}
               onClick={canSelect ? () => handleSelectTile(tile.tileCode) : undefined}
               className={`relative ${isEmpty ? 'opacity-30' : ''} ${
+                isThisSelected ? 'ring-2 ring-green-400 opacity-60' : ''
+              } ${
                 canSelect ? 'cursor-pointer ring-2 ring-orange-400 hover:brightness-125' : ''
               }`}
               title={`${tile.description} (${tile.quantity}개)`}
             >
               {imgSrc ? (
-                <img src={imgSrc} alt={tile.tileCode} className="h-10 w-auto object-contain" draggable={false} />
+                <img src={imgSrc} alt={tile.tileCode} className="h-[60px] w-auto object-contain" draggable={false} />
               ) : (
-                <div className="h-12 w-16 bg-gray-700 rounded flex items-center justify-center">
+                <div className="h-[72px] w-24 bg-gray-700 rounded flex items-center justify-center">
                   <span className="text-[8px] text-gray-400">{tile.tileCode.replace('FED_', '')}</span>
                 </div>
               )}
-              <span className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center border border-gray-600">
+              <span className="absolute -top-2 -right-2 bg-gray-900 text-white text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center border border-gray-600">
                 {tile.quantity}
               </span>
             </div>

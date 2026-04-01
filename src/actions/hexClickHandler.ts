@@ -6,9 +6,11 @@
  */
 
 import type { GameHex, PlayerStateResponse } from '../api/client';
+import { useGameStore } from '../store/gameStore';
 import type { GameAction, PlaceMineAction, FleetProbeAction, DeployGaiaformerAction, BoosterAction } from '../types/turnActions';
 import { UPGRADE_OPTIONS, BUILDING_COSTS } from '../constants/gameCosts';
 import { getTerraformDiscount, getNavBonus } from '../utils/terraformingCalculator';
+import { hasBlockingOtherPending, calcMinePlacementModifiers } from './pendingAnalyzer';
 import { getNavigationCost, navLevelToRange, getNavRangeBonus } from '../utils/navigationCalculator';
 import { calcMineCost } from '../utils/mineActionCalculator';
 import type { ResourceCost } from '../types/turnActions';
@@ -110,6 +112,9 @@ function handleFederationMode(ctx: HexClickContext, cb: HexClickCallbacks): bool
     return true;
   }
 
+  // PLACE_SPECIAL_MINE: 광산 배치 모드 → 일반 광산 핸들러로 넘김
+  if (ctx.federationMode.phase === 'PLACE_SPECIAL_MINE') return false;
+
   return true; // SELECT_TILE 등 → 클릭 무시
 }
 
@@ -125,8 +130,18 @@ function handleFleetShipMode(ctx: HexClickContext, cb: HexClickCallbacks): boole
     : ctx.fleetShipMode.needsGaiaformHex ? 'GAIAFORMER'
     : 'MINE';
 
+  // 거리 기반 QIC 소모 계산
+  const myState = getMyState(ctx);
+  let qicUsed = 0;
+  if (myState) {
+    const myBuildings = getMyBuildings(ctx);
+    const effectiveNavRange = navLevelToRange(myState.techNavigation) + getNavRangeBonus(ctx.techTileData, ctx.playerId);
+    const navResult = getNavigationCost(ctx.hex.hexQ, ctx.hex.hexR, myBuildings, effectiveNavRange, myState.qic);
+    qicUsed = navResult.qicNeeded;
+  }
+
   cb.completeFleetShipHexSelection(
-    { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR },
+    { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, qicUsed },
     { id: `temp-${Date.now()}`, gameId: ctx.roomId, playerId: ctx.playerId, hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, buildingType },
   );
   return true;
@@ -219,20 +234,7 @@ function handleLostPlanet(ctx: HexClickContext, cb: HexClickCallbacks): boolean 
 }
 
 function handleBlockOtherPending(ctx: HexClickContext): boolean {
-  const pending = ctx.turnState.pendingActions;
-  if (pending.length === 0) return false;
-
-  const terraformDiscount = getTerraformDiscount(pending);
-  const navBonus = getNavBonus(pending);
-  const hasPendingTerraform = terraformDiscount > 0 && !pending.some(a => a.type === 'PLACE_MINE');
-  const hasPendingNavBoost = navBonus > 0 && !pending.some(a => a.type === 'PLACE_MINE' || a.type === 'FLEET_PROBE' || a.type === 'DEPLOY_GAIAFORMER');
-  const boosterAct = pending.find(a => a.type === 'BOOSTER_ACTION') as BoosterAction | undefined;
-  const hasPendingGaiaformerBooster = boosterAct?.payload.actionType === 'PLACE_GAIAFORMER' && !pending.some(a => a.type === 'PLACE_MINE');
-
-  if (!hasPendingTerraform && !hasPendingNavBoost && !hasPendingGaiaformerBooster) {
-    return true; // 차단
-  }
-  return false;
+  return hasBlockingOtherPending(ctx.turnState.pendingActions, ctx.tentativeTechTileCode);
 }
 
 // ============================================================
@@ -247,7 +249,8 @@ function handleFleetProbe(ctx: HexClickContext, cb: HexClickCallbacks): boolean 
   const navBonus = getNavBonus(ctx.turnState.pendingActions);
   const myState = getMyState(ctx);
   const { qicNeeded: navQic } = calcNavInfo(ctx, navBonus);
-  const baseCost = BUILDING_COSTS.FLEET_PROBE.base;
+  const isBalTaks = ctx.mySeat?.raceCode === 'BAL_TAKS';
+  const baseCost = isBalTaks ? { vp: 7 } : BUILDING_COSTS.FLEET_PROBE.base;
   const cost = navQic > 0 ? { ...baseCost, qic: (baseCost.qic ?? 0) + navQic } : baseCost;
   const slotIndex = (ctx.fleetProbes[fleetName] || []).length;
   const powerCharge = (slotIndex === 1 || slotIndex === 2) ? 2 : slotIndex === 3 ? 3 : 0;
@@ -301,9 +304,19 @@ function handleGaiaMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean {
   const building = ctx.buildingByCoord.get(`${ctx.hex.hexQ},${ctx.hex.hexR}`);
   if (!building || building.playerId !== ctx.playerId || building.buildingType !== 'GAIAFORMER' || ctx.hex.planetType !== 'GAIA') return false;
 
+  // 라운드 점수용: 새 섹터 진출 여부
+  const gaiaTargetSector = getSectorIdFromHex(ctx.hex);
+  let gaiaIsNewSector: boolean | undefined;
+  if (gaiaTargetSector) {
+    const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
+    const sectorHexes = ctx.hexes.filter(h => getSectorIdFromHex(h) === gaiaTargetSector);
+    const hasMyBuildingInSector = sectorHexes.some(sh => myBlds.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR));
+    gaiaIsNewSector = !hasMyBuildingInSector || undefined;
+  }
+
   const action: PlaceMineAction = {
     id: uid(), type: 'PLACE_MINE', timestamp: Date.now(),
-    payload: { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost: { credit: 2, ore: 1 } },
+    payload: { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost: { credit: 2, ore: 1 }, isGaia: true, isNewSector: gaiaIsNewSector },
   };
   cb.addPendingAction(action);
   cb.addTentativeBuilding({
@@ -353,7 +366,14 @@ function handleUpgrade(ctx: HexClickContext, cb: HexClickCallbacks): boolean {
   if (hasPendingTerraform || hasPendingNavBoost) return false;
 
   const fromType = building.buildingType;
-  const options = UPGRADE_OPTIONS[fromType];
+  const isBescods = ctx.mySeat?.raceCode === 'BESCODS';
+  let options = UPGRADE_OPTIONS[fromType];
+  // 매안: 교역소→연구소/아카데미, 연구소→PI
+  if (isBescods && fromType === 'TRADING_STATION') {
+    options = ['RESEARCH_LAB', 'ACADEMY_KNOWLEDGE', 'ACADEMY_QIC'];
+  } else if (isBescods && fromType === 'RESEARCH_LAB') {
+    options = ['PLANETARY_INSTITUTE'];
+  }
   if (!options) return false;
 
   if (options.length === 1) {
@@ -387,9 +407,19 @@ function handleLantidsMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean
   const { qicNeeded: navQic } = calcNavInfo(ctx, navBonus);
   const cost: ResourceCost = { credit: 2, ore: 1, qic: navQic };
 
+  // 라운드 점수용: 새 섹터 진출 여부 (란티다 기생 광산도 NEW_SECTOR 트리거)
+  const lantidsTargetSector = getSectorIdFromHex(ctx.hex);
+  let lantidsIsNewSector: boolean | undefined;
+  if (lantidsTargetSector) {
+    const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
+    const sectorHexes = ctx.hexes.filter(h => getSectorIdFromHex(h) === lantidsTargetSector);
+    const hasMyBuildingInSector = sectorHexes.some(sh => myBlds.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR));
+    lantidsIsNewSector = !hasMyBuildingInSector || undefined;
+  }
+
   const action: PlaceMineAction = {
     id: uid(), type: 'PLACE_MINE', timestamp: Date.now(),
-    payload: { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost, gaiaformerUsed: false, isLantidsMine: true },
+    payload: { hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost, gaiaformerUsed: false, isLantidsMine: true, isNewSector: lantidsIsNewSector },
   };
   cb.addPendingAction(action);
   cb.addTentativeBuilding({
@@ -413,46 +443,55 @@ function handlePlayingMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean
   if (!myState) return false;
 
   const pending = ctx.turnState.pendingActions;
-  let terraformDiscount = getTerraformDiscount(pending);
-  const navBonus = getNavBonus(pending);
+  const mods = calcMinePlacementModifiers(pending, ctx.tentativeTechTileCode);
 
-  // 2삽 기술 타일 할인
-  const TERRAFORM_2_TILES = ['BASIC_EXP_TILE_3'];
-  if (terraformDiscount === 0 && pending.some(a => a.type === 'UPGRADE_BUILDING')
-    && ctx.tentativeTechTileCode && TERRAFORM_2_TILES.includes(ctx.tentativeTechTileCode)) {
-    terraformDiscount = 2;
-  }
+  // previewPlayerState는 BASIC_EXP_TILE_3 광산 미배치 시 트랙 전진 미적용
+  // → myState.techNavigation = 원래 레벨로 navQic 계산이 자동으로 올바름
+  const { qicNeeded: navQic } = calcNavInfo(ctx, mods.navBonus);
 
-  const { qicNeeded: navQic } = calcNavInfo(ctx, navBonus);
-
+  // 광산 비용 계산
   const result = calcMineCost(
     ctx.hex.planetType, ctx.mySeat.raceCode, ctx.mySeat.homePlanetType,
-    myState.techTerraforming, terraformDiscount, myState, ctx.seats, navQic,
+    myState.techTerraforming, mods.terraformDiscount, myState, ctx.seats, navQic,
     ctx.tinkeroidsExtraRingPlanet, ctx.moweidsExtraRingPlanet,
   );
 
-  if (!result.possible) {
-    alert('자원이 부족합니다.');
-    return true; // 처리됨 (에러)
+  let cost: ResourceCost;
+  if (mods.isFreeMine) {
+    if (mods.fedSpecialTileCode === 'FED_EXP_TILE_7') {
+      // 무한거리: 테라포밍 비용만 (기본 2c+1o 제거)
+      cost = { ore: Math.max(0, result.ore - 1), qic: result.qic };
+    } else if (!mods.fedSpecialTileCode) {
+      // 2삽 기술타일(BASIC_EXP_TILE_3): 기본 광산비용(2c+1o) 무료, 2단계 초과 테라포밍 비용 청구
+      cost = { ore: Math.max(0, result.ore - 1), qic: navQic };
+    } else {
+      // FED_EXP_TILE_5(3삽): 완전 무료
+      cost = { qic: navQic };
+    }
+  } else {
+    if (!result.possible) {
+      alert('자원이 부족합니다.');
+      return true;
+    }
+    cost = { credit: result.credit, ore: result.ore, qic: result.qic };
   }
 
-  const cost: ResourceCost = { credit: result.credit, ore: result.ore, qic: result.qic };
+  // 새 행성 타입 개척 여부 (라운드 점수 + 기오덴 PI 보너스)
+  const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
+  const existingPlanetTypes = new Set<string>();
+  for (const b of myBlds) {
+    const bHex = ctx.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
+    if (bHex) existingPlanetTypes.add(bHex.planetType);
+  }
+  const isNewPlanet = !existingPlanetTypes.has(ctx.hex.planetType) || undefined;
 
-  // 기오덴 PI: 새 행성 개척 여부
-  const isGeodensNewPlanet = ctx.mySeat.raceCode === 'GEODENS'
-    && myState.stockPlanetaryInstitute === 0
-    && !result.gaiaformerUsed;
-
-  // 다카니안 PI: 새 섹터 여부
-  let isDakaniansNewSector: boolean | undefined;
-  if (ctx.mySeat.raceCode === 'DAKANIANS' && myState.stockPlanetaryInstitute === 0) {
-    const targetSectorId = getSectorIdFromHex(ctx.hex);
-    if (targetSectorId) {
-      const sectorHexes = ctx.hexes.filter(h => getSectorIdFromHex(h) === targetSectorId);
-      const myBlds = ctx.buildings.filter(b => b.playerId === ctx.playerId);
-      const hasMyBuildingInSector = sectorHexes.some(sh => myBlds.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR));
-      isDakaniansNewSector = !hasMyBuildingInSector || undefined;
-    }
+  // 새 섹터 진출 여부 (라운드 점수 + 다카니안 PI 보너스)
+  const targetSectorId = getSectorIdFromHex(ctx.hex);
+  let isNewSector: boolean | undefined;
+  if (targetSectorId) {
+    const sectorHexes = ctx.hexes.filter(h => getSectorIdFromHex(h) === targetSectorId);
+    const hasMyBuildingInSector = sectorHexes.some(sh => myBlds.some(b => b.hexQ === sh.hexQ && b.hexR === sh.hexR));
+    isNewSector = !hasMyBuildingInSector || undefined;
   }
 
   const action: PlaceMineAction = {
@@ -461,8 +500,10 @@ function handlePlayingMine(ctx: HexClickContext, cb: HexClickCallbacks): boolean
       hexQ: ctx.hex.hexQ, hexR: ctx.hex.hexR, cost,
       gaiaformerUsed: result.gaiaformerUsed || undefined,
       vpBonus: result.vpBonus || undefined,
-      isNewPlanet: isGeodensNewPlanet || undefined,
-      isNewSector: isDakaniansNewSector,
+      isGaia: ctx.hex.planetType === 'GAIA' || undefined,
+      isNewPlanet,
+      isNewSector,
+      terraformSteps: result.terraformSteps || undefined,
     },
   };
   cb.addPendingAction(action);
@@ -495,8 +536,9 @@ const RULES: HexClickRule[] = [
 ];
 
 export function handleHexClick(ctx: HexClickContext, cb: HexClickCallbacks): void {
-  // 기본 조건
-  if (ctx.federationMode) {
+  // federationMode를 최신 store 상태로 덮어쓰기 (closure 캐시 문제 방지)
+  ctx = { ...ctx, federationMode: useGameStore.getState().federationMode };
+  if (ctx.federationMode && ctx.federationMode.phase !== 'PLACE_SPECIAL_MINE') {
     handleFederationMode(ctx, cb);
     return;
   }

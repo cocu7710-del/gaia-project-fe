@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { roomApi } from '../api/client';
 import type { TechTileInfo } from '../api/client';
+import { findTechTilePickerTrigger } from '../actions/pendingAnalyzer';
 
 const TRACK_LABELS: Record<string, string> = {
   TERRA_FORMING: '테라포밍',
@@ -33,23 +34,28 @@ export default function TechTilePickerPanel({ roomId }: Props) {
   const [tiles, setTiles] = useState<TechTileInfo[]>([]);
   const [pickingTrackFor, setPickingTrackFor] = useState<string | null>(null); // COMMON tile code waiting for track selection
 
-  // 교역소/아카데미 업그레이드 pending 여부 확인
-  const pendingUpgrade = turnState.pendingActions.find(
-    a => a.type === 'UPGRADE_BUILDING' &&
-    (a.payload.toType === 'TRADING_STATION' || a.payload.toType === 'ACADEMY')
-  );
+  // 기술타일 선택이 필요한 pending 확인 (공용 함수 사용)
+  const pendingUpgrade = findTechTilePickerTrigger(turnState.pendingActions);
 
   useEffect(() => {
     if (pendingUpgrade && roomId) {
       roomApi.getTechTracks(roomId).then(res => {
-        setTiles(res.data.basicTiles.filter(t => !t.isTaken));
+        const myPid = useGameStore.getState().playerId ?? '';
+        setTiles(res.data.basicTiles.filter(t => {
+          // 내가 이미 보유한 타일은 중복 불가
+          if (t.ownerPlayerIds?.includes(myPid)) return false;
+          return true;
+        }));
       }).catch(() => setTiles([]));
     }
   }, [pendingUpgrade, roomId]);
 
   if (!pendingUpgrade) return null;
 
-  const buildingLabel = pendingUpgrade.payload.toType === 'TRADING_STATION' ? '교역소' : '아카데미';
+  const actionCode = (pendingUpgrade.payload as any).actionCode;
+  const buildingLabel = actionCode
+    ? (actionCode === 'TWILIGHT_UPGRADE' ? '연구소' : '함대')
+    : (pendingUpgrade.payload.toType === 'RESEARCH_LAB' ? '연구소' : pendingUpgrade.payload.toType === 'ACADEMY' ? '아카데미' : '교역소');
 
   // 트랙별로 타일 그룹
   const trackTiles = TRACK_ORDER.map(track => ({
@@ -60,10 +66,15 @@ export default function TechTilePickerPanel({ roomId }: Props) {
   const commonTiles = tiles.filter(t => t.trackCode === 'COMMON' || t.trackCode === 'EXPANSION');
 
   const handleSelectTile = (tile: TechTileInfo) => {
-    if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
+    if (['BASIC_EXP_TILE_3'].includes(tile.tileCode)) {
+      // 2삽 1광산 타일: 타일만 선택 → 광산 배치 → 이후 트랙 선택
+      setTentativeTechTile(tile.tileCode, null);
+      setPickingTrackFor(null);
+    } else if (tile.trackCode === 'COMMON' || tile.trackCode === 'EXPANSION') {
       setPickingTrackFor(tile.tileCode);
     } else {
-      setTentativeTechTile(tile.tileCode, null);
+      // track-specific 타일: 트랙이 이미 결정됨 → trackCode 함께 설정
+      setTentativeTechTile(tile.tileCode, tile.trackCode);
       setPickingTrackFor(null);
     }
   };

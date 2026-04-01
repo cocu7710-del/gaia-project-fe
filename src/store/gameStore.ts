@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import type { GamePublicStateResponse, GameHex, GameBuilding, SeatView, PlayerStateResponse, TechTrackResponse } from '../api/client';
+import type { GamePublicStateResponse, GameHex, GameBuilding, SeatView, PlayerStateResponse, TechTrackResponse, RoundScoringInfo } from '../api/client';
 import type { TurnState } from '../types/turnState';
 import type { GameAction, ResourceCost } from '../types/turnActions';
-import { ResourceCalculator } from '../utils/resourceCalculator';
+import { ResourceCalculator, isNevlasPiActive } from '../utils/resourceCalculator';
 
 /** 글린 QIC 획득: QIC아카데미 건설 전 → 광석 변환, 건설 후 → 정상 QIC 획득 */
 function addQicPreview(ps: PlayerStateResponse, amount: number): PlayerStateResponse {
@@ -27,12 +27,25 @@ function removePowerTokenPreview(ps: PlayerStateResponse): PlayerStateResponse {
 /** 파워 순환 프리뷰 (bowl1→bowl2→bowl3, 방금 이동한 토큰도 같은 순환에서 사용 가능) */
 function applyPowerCharge(p: PlayerStateResponse, amount: number): PlayerStateResponse {
   let rem = amount;
+  // bowl1 → bowl2: 일반 토큰
   const fb1 = Math.min(p.powerBowl1, rem);
   p = { ...p, powerBowl1: p.powerBowl1 - fb1, powerBowl2: p.powerBowl2 + fb1 };
   rem -= fb1;
+  // bowl1 → bowl2: 브레인스톤 (1파워 소모)
+  if (rem > 0 && p.brainstoneBowl === 1) {
+    p = { ...p, brainstoneBowl: 2 };
+    rem -= 1;
+  }
+  // bowl2 → bowl3: 브레인스톤 우선 이동 (1파워 소모)
+  if (rem > 0 && p.brainstoneBowl === 2) {
+    p = { ...p, brainstoneBowl: 3 };
+    rem -= 1;
+  }
+  // bowl2 → bowl3: 일반 토큰
   if (rem > 0) {
     const fb2 = Math.min(p.powerBowl2, rem);
     p = { ...p, powerBowl2: p.powerBowl2 - fb2, powerBowl3: p.powerBowl3 + fb2 };
+    rem -= fb2;
   }
   return p;
 }
@@ -63,14 +76,30 @@ function applyTrackAdvance(preview: PlayerStateResponse, trackCode: string): Pla
       if (newLevel === 1 || newLevel === 3 || newLevel === 4) p = { ...p, stockGaiaformer: (p.stockGaiaformer ?? 0) + 1 };
       else if (newLevel === 2) p = { ...p, powerBowl1: p.powerBowl1 + 3 }; // 파워 토큰 +3
       break;
+    // ECONOMY: 수입 트랙이므로 즉시 보상 없음 (라운드 수입 단계에서 처리)
     case 'ECONOMY':
-      if (newLevel === 1) { p = { ...p, credit: p.credit + 2 }; p = applyPowerCharge(p, 1); }
-      else if (newLevel === 2) { p = { ...p, ore: p.ore + 1, credit: p.credit + 2 }; p = applyPowerCharge(p, 2); }
-      else if (newLevel === 3) { p = { ...p, ore: p.ore + 1, credit: p.credit + 3 }; } // 옵션 A 기본
-      else if (newLevel === 4) { p = { ...p, ore: p.ore + 2, credit: p.credit + 4 }; }
       break;
     // SCIENCE: 수입은 라운드 수입 단계에서 처리 (즉시 보상 없음)
   }
+
+  // 5단계 진입: 기존 연방 토큰 뒤집기(요건) + 꼭대기 연방 토큰 획득(보상)
+  if (newLevel === 5) {
+    // 꼭대기 연방 토큰 보상 (terraFedTile — TechTracks에서 로드한 값)
+    const terraFedTileCode = useGameStore.getState().terraFedTileCode;
+    if (terraFedTileCode) {
+      const reward = FEDERATION_TILE_REWARD[terraFedTileCode];
+      if (reward) {
+        if (reward.credit) p = { ...p, credit: p.credit + reward.credit };
+        if (reward.ore) p = { ...p, ore: p.ore + reward.ore };
+        if (reward.knowledge) p = { ...p, knowledge: p.knowledge + reward.knowledge };
+        if (reward.qic) p = addQicPreview(p, reward.qic);
+        if (reward.powerToken != null && reward.powerToken > 0) p = { ...p, powerBowl1: p.powerBowl1 + reward.powerToken };
+        if (reward.vp) p = { ...p, victoryPoints: p.victoryPoints + reward.vp };
+        if (reward.powerToBowl3) p = { ...p, powerBowl3: p.powerBowl3 + reward.powerToBowl3 };
+      }
+    }
+  }
+
   return p;
 }
 
@@ -92,22 +121,22 @@ function applyFreeConvert(preview: PlayerStateResponse, code: string): PlayerSta
     case 'ORE_TO_TOKEN':     return { ...preview, ore: preview.ore - 1, powerBowl1: preview.powerBowl1 + 1 };
     case 'ORE_TO_POWER3':   return { ...preview, ore: preview.ore - 1, powerBowl3: preview.powerBowl3 + 1 };
     case 'POWER_TO_CREDIT': {
-      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const npi = isNevlasPiActive(preview);
       const tokens = 1;
       return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, credit: preview.credit + (npi ? 2 : 1) };
     }
     case 'POWER_TO_ORE': {
-      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const npi = isNevlasPiActive(preview);
       const tokens = npi ? 2 : 3;
       return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, ore: preview.ore + 1 };
     }
     case 'POWER_TO_KNOWLEDGE': {
-      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const npi = isNevlasPiActive(preview);
       const tokens = npi ? 2 : 4;
       return { ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens, knowledge: preview.knowledge + 1 };
     }
     case 'POWER_TO_QIC': {
-      const npi = preview.factionCode === 'NEVLAS' && preview.stockPlanetaryInstitute === 0;
+      const npi = isNevlasPiActive(preview);
       const tokens = npi ? 2 : 4;
       return addQicPreview({ ...preview, powerBowl3: preview.powerBowl3 - tokens, powerBowl1: preview.powerBowl1 + tokens }, 1);
     }
@@ -132,7 +161,7 @@ const FEDERATION_TILE_REWARD: Record<string, { credit?: number; ore?: number; kn
   FED_TILE_4:     { qic: 1, vp: 8 },
   FED_TILE_5:     { ore: 2, vp: 7 },
   FED_TILE_6:     { powerToken: 2, vp: 8 },
-  FED_EXP_TILE_1: { knowledge: 8 },
+  FED_EXP_TILE_1: {},  // 기술 타일 획득 (자원 보상 없음)
   FED_EXP_TILE_2: { knowledge: 4, vp: 4 },
   FED_EXP_TILE_3: { credit: 8, vp: 8 },
   FED_EXP_TILE_4: { ore: 2, qic: 1, vp: 4 },
@@ -160,29 +189,63 @@ const TECH_TRACK_FIELD: Record<string, keyof PlayerStateResponse> = {
   SCIENCE: 'techScience',
 };
 
+/** 현재 라운드 점수 타일에서 이벤트에 대한 VP 반환 */
+function getRoundScoringVp(tileCode: string, event: string, count: number = 1): number {
+  const table: Record<string, { event: string; vp: number }[]> = {
+    ROUND_TILE_MINE:                [{ event: 'MINE_PLACED', vp: 2 }],
+    ROUND_TILE_TRADING_STATION_3:   [{ event: 'TRADING_STATION_BUILT', vp: 3 }],
+    ROUND_TILE_TRADING_STATION_4:   [{ event: 'TRADING_STATION_BUILT', vp: 4 }],
+    ROUND_TILE_PLANETARY_INSTITUTE: [{ event: 'PLANETARY_INSTITUTE_BUILT', vp: 4 }],
+    ROUND_TILE_ACADEMY:             [{ event: 'ACADEMY_BUILT', vp: 5 }, { event: 'PLANETARY_INSTITUTE_BUILT', vp: 5 }],
+    ROUND_TILE_GAIA_PLANET_3:       [{ event: 'GAIA_PLANET_COLONIZED', vp: 3 }],
+    ROUND_TILE_GAIA_PLANET_4:       [{ event: 'GAIA_PLANET_COLONIZED', vp: 4 }],
+    ROUND_TILE_TERRAFORM:           [{ event: 'TERRAFORM_STEP', vp: 2 }],
+    ROUND_TILE_RESEARCH_ADVANCE:    [{ event: 'RESEARCH_ADVANCED', vp: 2 }],
+    ROUND_TILE_FEDERATION:          [{ event: 'FEDERATION_FORMED', vp: 5 }],
+    ROUND_TILE_NEW_SECTOR:          [{ event: 'NEW_SECTOR_ENTERED', vp: 3 }],
+    ROUND_TILE_NEW_PLANET_TYPE:     [{ event: 'NEW_PLANET_TYPE_COLONIZED', vp: 3 }],
+  };
+  const entry = table[tileCode]?.find(e => e.event === event);
+  return entry ? entry.vp * count : 0;
+}
+
 function calculatePreviewState(
   originalState: PlayerStateResponse | null,
   actions: GameAction[],
   burnPowerCount: number,
-  freeConvertActions: string[] = [],
+  freeConvertActions: { code: string; afterMain: boolean }[] = [],
   tentativeTechTrackCode: string | null = null,
+  tentativeTechTileCodeParam: string | null = null,
 ): PlayerStateResponse | null {
   if (!originalState) return null;
   let preview = { ...originalState };
   // burn power를 먼저 적용 (자유 행동이므로 다른 액션보다 선행)
   if (burnPowerCount > 0) {
     const isItars = preview.factionCode === 'ITARS';
-    preview = {
-      ...preview,
-      powerBowl2: preview.powerBowl2 - burnPowerCount * 2,
-      powerBowl3: preview.powerBowl3 + burnPowerCount,
-      ...(isItars ? { gaiaPower: (preview.gaiaPower || 0) + burnPowerCount } : {}),
-    };
+    for (let i = 0; i < burnPowerCount; i++) {
+      // 타클론: 브레인스톤이 bowl2에 있으면 먼저 bowl3로 이동 (소각 1회분 = 일반1제거 + B이동)
+      if (preview.brainstoneBowl === 2) {
+        preview = {
+          ...preview,
+          powerBowl2: preview.powerBowl2 - 1, // 일반 1개 제거
+          brainstoneBowl: 3, // 브레인 bowl3로 이동
+          ...(isItars ? { gaiaPower: (preview.gaiaPower || 0) + 1 } : {}),
+        };
+      } else {
+        preview = {
+          ...preview,
+          powerBowl2: preview.powerBowl2 - 2,
+          powerBowl3: preview.powerBowl3 + 1,
+          ...(isItars ? { gaiaPower: (preview.gaiaPower || 0) + 1 } : {}),
+        };
+      }
+    }
   }
-  // 프리 액션 (소각 뒤, 메인 액션 전에 적용 — BE 확정 순서와 동일)
-  for (const code of freeConvertActions) {
-    preview = applyFreeConvert(preview, code);
+  // 프리 액션 (메인 전) 적용
+  for (const fc of freeConvertActions) {
+    if (!fc.afterMain) preview = applyFreeConvert(preview, fc.code);
   }
+  // 메인 액션 적용
   for (const act of actions) {
     // TWILIGHT_ARTIFACT: 파워 6 소각 (bowl1→2→3 순 영구 제거) + 즉시 효과
     if (act.type === 'FLEET_SHIP_ACTION' && (act.payload as any).actionCode === 'TWILIGHT_ARTIFACT') {
@@ -240,6 +303,32 @@ function calculatePreviewState(
         preview = ResourceCalculator.applyResourceCost(preview, act.payload.cost);
       }
     }
+    // FLEET_SHIP_ACTION 프리뷰
+    if (act.type === 'FLEET_SHIP_ACTION') {
+      const actionCode = (act.payload as any).actionCode;
+      // gain 적용 (REBELLION_CONVERT, TWILIGHT_FED 등)
+      if (act.payload.gain) {
+        const g = act.payload.gain;
+        preview = {
+          ...preview,
+          credit: preview.credit + (g.credit ?? 0),
+          ore: preview.ore + (g.ore ?? 0),
+          knowledge: preview.knowledge + (g.knowledge ?? 0),
+          qic: preview.qic + (g.qic ?? 0),
+          victoryPoints: preview.victoryPoints + (g.vp ?? 0),
+        };
+      }
+      // 재고 변동 프리뷰
+      if (actionCode === 'REBELLION_UPGRADE') {
+        preview = { ...preview, stockTradingStation: Math.max(0, preview.stockTradingStation - 1), stockMine: preview.stockMine + 1 };
+      } else if (actionCode === 'TWILIGHT_UPGRADE') {
+        preview = { ...preview, stockResearchLab: Math.max(0, preview.stockResearchLab - 1), stockTradingStation: preview.stockTradingStation + 1 };
+      } else if (actionCode === 'ECLIPSE_MINE') {
+        preview = { ...preview, stockMine: Math.max(0, preview.stockMine - 1) };
+      } else if (actionCode === 'TF_MARS_GAIAFORM') {
+        preview = { ...preview, stockGaiaformer: Math.max(0, preview.stockGaiaformer - 1) };
+      }
+    }
     if (act.type === 'PLACE_MINE' && act.payload.gaiaformerUsed) {
       preview = { ...preview, stockGaiaformer: preview.stockGaiaformer - 1 };
     }
@@ -259,6 +348,19 @@ function calculatePreviewState(
       if (preview.factionCode === 'DAKANIANS' && preview.stockPlanetaryInstitute === 0 && act.payload.isNewSector) {
         preview = { ...preview, credit: preview.credit + 2, knowledge: preview.knowledge + 1 };
       }
+      // 글린: 가이아 행성 건설 시 +2VP
+      if (preview.factionCode === 'GLEENS' && act.payload.isGaia) {
+        preview = { ...preview, victoryPoints: preview.victoryPoints + 2 };
+      }
+      // 기술타일 패시브: 가이아 구역 광산 건설 시 VP +3
+      if (act.payload.isGaia) {
+        const td = useGameStore.getState().techTileData;
+        const pid = preview.playerId ?? originalState.playerId;
+        const hasGaiaTile = td?.basicTiles.some(t => t.tileCode === 'BASIC_TILE_8' && (t.ownerPlayerIds ?? []).includes(pid));
+        if (hasGaiaTile) {
+          preview = { ...preview, victoryPoints: preview.victoryPoints + 3 };
+        }
+      }
     }
     if (act.type === 'PLACE_LOST_PLANET') {
       // 검은행성: 광산 재고 감소 없음, VP +6
@@ -276,7 +378,12 @@ function calculatePreviewState(
           preview = { ...preview, credit: preview.credit + 2, ore: preview.ore + 1, knowledge: preview.knowledge + 1 };
         }
       }
-      else if (toType === 'ACADEMY') preview = { ...preview, stockAcademy: Math.max(0, preview.stockAcademy - 1), stockResearchLab: preview.stockResearchLab + 1 };
+      else if (toType === 'ACADEMY') {
+        preview = { ...preview, stockAcademy: Math.max(0, preview.stockAcademy - 1), stockResearchLab: preview.stockResearchLab + 1 };
+        if (act.payload.academyType === 'QIC') {
+          preview = { ...preview, hasQicAcademy: true };
+        }
+      }
     }
     if ((act.type === 'POWER_ACTION') && act.payload.gain) {
       preview = ResourceCalculator.applyResourceGain(preview, act.payload.gain);
@@ -285,6 +392,10 @@ function calculatePreviewState(
       preview = applyTrackAdvance(preview, act.payload.trackCode);
     }
     if (act.type === 'FLEET_PROBE') {
+      // 타클론: 브레인스톤을 가이아 구역으로 이동
+      if (preview.factionCode === 'TAKLONS' && preview.brainstoneBowl != null && preview.brainstoneBowl !== 0) {
+        preview = { ...preview, brainstoneBowl: 0 };
+      }
       // 네블라/아이타: 우주선 입장 시 파워 토큰 1개 영구 소각
       if (preview.factionCode === 'NEVLAS' || preview.factionCode === 'ITARS') {
         if (preview.powerBowl1 > 0) preview = { ...preview, powerBowl1: preview.powerBowl1 - 1 };
@@ -317,10 +428,14 @@ function calculatePreviewState(
       }
     }
     if (act.type === 'FACTION_ABILITY' && act.payload.abilityCode === 'GLEENS_FEDERATION_TOKEN') {
-      preview = { ...preview, credit: preview.credit - 2, ore: preview.ore - 1, knowledge: preview.knowledge - 1 };
+      preview = { ...preview, credit: preview.credit + 2, ore: preview.ore + 1, knowledge: preview.knowledge + 1 };
     }
     if (act.type === 'FACTION_ABILITY' && act.payload.abilityCode === 'QIC_ACADEMY_ACTION') {
-      preview = addQicPreview(preview, 1);
+      if (preview.factionCode === 'BAL_TAKS') {
+        preview = { ...preview, credit: preview.credit + 4 };
+      } else {
+        preview = addQicPreview(preview, 1);
+      }
     }
     if (act.type === 'FACTION_ABILITY' && act.payload.abilityCode === 'TINKEROIDS_USE_ACTION') {
       switch (act.payload.tinkAction) {
@@ -331,6 +446,17 @@ function calculatePreviewState(
       }
     }
     if (act.type === 'FORM_FEDERATION') {
+      // 파워 토큰 제거 (bowl1 → bowl2 → bowl3 순서)
+      const tokenCount = act.payload.placedTokens?.length ?? 0;
+      if (tokenCount > 0) {
+        let remaining = tokenCount;
+        let b1 = preview.powerBowl1, b2 = preview.powerBowl2, b3 = preview.powerBowl3;
+        const fromB1 = Math.min(b1, remaining); b1 -= fromB1; remaining -= fromB1;
+        const fromB2 = Math.min(b2, remaining); b2 -= fromB2; remaining -= fromB2;
+        const fromB3 = Math.min(b3, remaining); b3 -= fromB3;
+        preview = { ...preview, powerBowl1: b1, powerBowl2: b2, powerBowl3: b3 };
+      }
+      // 타일 보상 적용
       const reward = FEDERATION_TILE_REWARD[act.payload.tileCode];
       if (reward) {
         if (reward.credit) preview = { ...preview, credit: preview.credit + reward.credit };
@@ -354,9 +480,73 @@ function calculatePreviewState(
         if (effect.credit) preview = { ...preview, credit: preview.credit + effect.credit };
       }
     }
+
+    // 라운드 점수 VP 프리뷰
+    {
+      const gs = useGameStore.getState();
+      const roundTile = gs.roundScoringTiles?.find(t => t.roundNumber === gs.currentRound)?.tileCode;
+      if (roundTile) {
+        let roundVp = 0;
+        if (act.type === 'PLACE_MINE') {
+          roundVp += getRoundScoringVp(roundTile, 'MINE_PLACED');
+          if (act.payload.isGaia) roundVp += getRoundScoringVp(roundTile, 'GAIA_PLANET_COLONIZED');
+          if (!act.payload.isGaia && !act.payload.gaiaformerUsed && !act.payload.isLantidsMine) {
+            roundVp += getRoundScoringVp(roundTile, 'TERRAFORM_STEP', act.payload.terraformSteps ?? 0);
+          }
+          if (act.payload.isNewSector) roundVp += getRoundScoringVp(roundTile, 'NEW_SECTOR_ENTERED');
+          if (act.payload.isNewPlanet && !act.payload.isLantidsMine) roundVp += getRoundScoringVp(roundTile, 'NEW_PLANET_TYPE_COLONIZED');
+        } else if (act.type === 'PLACE_LOST_PLANET') {
+          roundVp += getRoundScoringVp(roundTile, 'MINE_PLACED');
+        } else if (act.type === 'UPGRADE_BUILDING') {
+          const toType = act.payload.toType;
+          if (toType === 'TRADING_STATION') roundVp += getRoundScoringVp(roundTile, 'TRADING_STATION_BUILT');
+          else if (toType === 'PLANETARY_INSTITUTE') {
+            roundVp += getRoundScoringVp(roundTile, 'PLANETARY_INSTITUTE_BUILT');
+            // 글린 PI: 연방 형성도 동시에 발생
+            if (preview.factionCode === 'GLEENS') roundVp += getRoundScoringVp(roundTile, 'FEDERATION_FORMED');
+          }
+          else if (toType === 'ACADEMY') roundVp += getRoundScoringVp(roundTile, 'ACADEMY_BUILT');
+        } else if (act.type === 'ADVANCE_TECH') {
+          roundVp += getRoundScoringVp(roundTile, 'RESEARCH_ADVANCED');
+        } else if (act.type === 'FORM_FEDERATION') {
+          roundVp += getRoundScoringVp(roundTile, 'FEDERATION_FORMED');
+        }
+        if (roundVp > 0) preview = { ...preview, victoryPoints: preview.victoryPoints + roundVp };
+      }
+    }
   }
-  // freeConvertActions는 이미 burn 뒤, actions 뒤에 적용됨 (위에서 이동 완료)
-  if (tentativeTechTrackCode) {
+  // 프리 액션 (메인 후) 적용
+  for (const fc of freeConvertActions) {
+    if (fc.afterMain) preview = applyFreeConvert(preview, fc.code);
+  }
+  // 기술 타일 즉시 보상 프리뷰 (tentativeTechTileCode 선택 시)
+  const tentTile = tentativeTechTileCodeParam ?? useGameStore.getState().tentativeTechTileCode;
+  if (tentTile) {
+    const TILE_IMMEDIATE_REWARD: Record<string, { credit?: number; ore?: number; knowledge?: number; qic?: number; vp?: number; powerCharge?: number }> = {
+      BASIC_TILE_5: { qic: 1, ore: 1 },
+      BASIC_TILE_6: { vp: 7 },
+      BASIC_EXP_TILE_2: { ore: 1, knowledge: 3 },
+      // BASIC_TILE_7: KNOWLEDGE_PER_PLANET_TYPE — 동적, FE에서 정확 계산 어려움
+      // BASIC_EXP_TILE_3: TERRAFORM_2 — 별도 처리
+      // 고급 타일 즉시 보상은 건물/연방 수 등 동적 → 프리뷰 생략
+    };
+    const reward = TILE_IMMEDIATE_REWARD[tentTile];
+    if (reward) {
+      if (reward.credit) preview = { ...preview, credit: preview.credit + reward.credit };
+      if (reward.ore) preview = { ...preview, ore: preview.ore + reward.ore };
+      if (reward.knowledge) preview = { ...preview, knowledge: preview.knowledge + reward.knowledge };
+      if (reward.qic) preview = addQicPreview(preview, reward.qic);
+      if (reward.vp) preview = { ...preview, victoryPoints: preview.victoryPoints + reward.vp };
+      if (reward.powerCharge) preview = applyPowerCharge(preview, reward.powerCharge);
+    }
+  }
+  // 기술타일 효과 서순: 타일 효과 발동 → 지식트랙 전진
+  // BASIC_EXP_TILE_3: 광산 배치(타일 효과)가 아직 안 된 상태에서는 트랙 전진 미적용
+  const TERRAFORM_2_MINE_TILES = ['BASIC_EXP_TILE_3'];
+  const terraform2MineNotYetPlaced = tentTile != null
+    && TERRAFORM_2_MINE_TILES.includes(tentTile)
+    && !actions.some(a => a.type === 'PLACE_MINE');
+  if (tentativeTechTrackCode && !terraform2MineNotYetPlaced) {
     preview = applyTrackAdvance(preview, tentativeTechTrackCode);
   }
   return preview;
@@ -371,6 +561,7 @@ interface GameState {
 
   // 게임 상태
   status: string;
+  participantCount: number;
   currentRound: number | null;
   gamePhase: string | null;
   nextSetupSeatNo: number | null;
@@ -378,6 +569,8 @@ interface GameState {
   roundFirstSeatNo: number | null;
   roundSeatOrder: number[];  // 현재 라운드 좌석 순서 (ROUND_STARTED에서 설정)
   economyTrackOption: string | null;
+  commonAdvTileCondition: string | null; // VP_25 또는 FLEET_3
+  gameCreatedAt: string | null;          // 방 생성 시간 (ISO)
   tinkeroidsExtraRingPlanet: string | null;
   moweidsExtraRingPlanet: string | null;
 
@@ -395,9 +588,13 @@ interface GameState {
   // 교역소/아카데미 건설 시 선택한 기술 타일 (확정 전 임시)
   tentativeTechTileCode: string | null;
   tentativeTechTrackCode: string | null;
+  tentativeCoverTileCode: string | null; // 고급 타일 획득 시 덮을 기본 타일
 
   // 기술 타일 현황 (TechTracks에서 fetch 후 저장)
   techTileData: TechTrackResponse | null;
+
+  // 라운드 점수 타일 현황 (ScoringTracks에서 fetch 후 저장)
+  roundScoringTiles: RoundScoringInfo[] | null;
 
   // 이번 라운드에 사용된 파워 액션 코드
   usedPowerActionCodes: string[];
@@ -422,7 +619,8 @@ interface GameState {
   } | null;
 
   // 연방 그룹 데이터 (건물/토큰 위치)
-  federationGroups: Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][]; used?: boolean }>;
+  federationGroups: Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][]; used: boolean }>;
+  terraFedTileCode: string | null;
   // 인공물 (트와일라잇 — 획득자 포함)
   gameArtifacts: Array<{ artifactCode: string; position: number; isTaken: boolean; acquiredByPlayerId: string | null }>;
 
@@ -432,6 +630,29 @@ interface GameState {
     availableActions: string[];
     currentRound: number;
   } | null;
+
+  // 액션 로그
+  actionLogs: { actionId: string; playerId: string; seatNo: number; factionCode: string; roundNumber: number; actionType: string; actionData: Record<string, any> }[];
+  setActionLogs: (logs: GameState['actionLogs']) => void;
+  appendActionLog: (log: GameState['actionLogs'][0]) => void;
+  highlightHex: { q: number; r: number } | null;
+  setHighlightHex: (hex: { q: number; r: number } | null) => void;
+
+  // 비딩 상태
+  biddingState: {
+    gamePhase: string;
+    biddingRound: number;
+    currentBid: number;
+    turnPlayerId: string;
+    bidders: { playerId: string; nickname: string; bidAmount: number; isPassed: boolean; pickOrder: number; seatNo: number }[];
+  } | null;
+  setBiddingState: (data: GameState['biddingState']) => void;
+
+  // 파워 수입 선택 (라운드 시작 시, 동시 진행)
+  powerIncomeChoice: {
+    players: { playerId: string; items: { id: string; source: string; label: string; powerCharge: number; powerBowl1: number }[] }[];
+  } | null;
+  setPowerIncomeChoice: (data: GameState['powerIncomeChoice']) => void;
 
   // 아이타 가이아→기술타일 선택 (라운드 종료 시)
   itarsGaiaChoice: {
@@ -461,7 +682,9 @@ interface GameState {
   federationMode: {
     selectedBuildings: number[][]; // [q,r] 배열 (내 건물 선택)
     placedTokens: number[][];     // [q,r] 배열
-    phase: 'SELECT_BUILDINGS' | 'PLACE_TOKENS' | 'SELECT_TILE';
+    phase: 'SELECT_BUILDINGS' | 'PLACE_TOKENS' | 'SELECT_TILE' | 'PLACE_SPECIAL_MINE';
+    minTokens?: number;           // 최소 토큰 수 (건물 검증 후)
+    specialTileCode?: string;     // 특수 연방 타일 코드 (FED_EXP_TILE_5/6)
   } | null;
 
   // 패스 부스터 선택 모드
@@ -483,6 +706,7 @@ interface GameState {
   updateGameStarted: (gamePhase: string, nextSetupSeatNo: number | null) => void;
   updateMinePlaced: (hexQ: number, hexR: number, playerId: string, nextSeatNo: number | null, gamePhase: string) => void;
   setGamePhase: (gamePhase: string) => void;
+  setParticipantCount: (count: number) => void;
   setNextSetupSeatNo: (seatNo: number | null) => void;
   setCurrentTurnSeatNo: (seatNo: number | null) => void;
 
@@ -513,7 +737,9 @@ interface GameState {
   setFederationPhase: (phase: 'SELECT_BUILDINGS' | 'PLACE_TOKENS' | 'SELECT_TILE') => void;
 
   setTentativeTechTile: (tileCode: string | null, trackCode: string | null) => void;
+  setTentativeCoverTile: (tileCode: string | null) => void;
   setTechTileData: (data: TechTrackResponse | null) => void;
+  setRoundScoringTiles: (tiles: RoundScoringInfo[]) => void;
 
   // 파워 리치 배치 액션
   setLeechBatch: (batch: GameState['leechBatch']) => void;
@@ -531,9 +757,8 @@ interface GameState {
   setFederationGroups: (groups: GameState['federationGroups']) => void;
   setGameArtifacts: (artifacts: GameState['gameArtifacts']) => void;
 
-  // 패스 순서 추적
+  // 패스 순서 추적 (BE publicState.passedSeatNos에서 가져옴)
   passedSeatNos: number[];
-  addPassedSeatNo: (seatNo: number) => void;
   clearPassedSeatNos: () => void;
 }
 
@@ -543,6 +768,7 @@ const initialState = {
   playerId: null,
   nickname: null,
   status: 'READY',
+  participantCount: 0,
   currentRound: null,
   gamePhase: null,
   nextSetupSeatNo: null,
@@ -550,6 +776,8 @@ const initialState = {
   roundFirstSeatNo: null,
   roundSeatOrder: [],
   economyTrackOption: null,
+  commonAdvTileCondition: null,
+  gameCreatedAt: null,
   tinkeroidsExtraRingPlanet: null,
   moweidsExtraRingPlanet: null,
   seats: [],
@@ -557,13 +785,18 @@ const initialState = {
   hexes: [],
   buildings: [],
   techTileData: null,
+  roundScoringTiles: null,
   usedPowerActionCodes: [],
   fleetProbes: {},
   fleetShipMode: null,
   federationMode: null,
   leechBatch: null,
   federationGroups: [],
+  terraFedTileCode: null,
   gameArtifacts: [],
+  actionLogs: [],
+  biddingState: null,
+  powerIncomeChoice: null,
   tinkeroidsActionChoice: null,
   itarsGaiaChoice: null,
   terransGaiaChoice: null,
@@ -571,6 +804,7 @@ const initialState = {
   selectingPassBooster: false,
   tentativeTechTileCode: null,
   tentativeTechTrackCode: null,
+  tentativeCoverTileCode: null,
   turnState: {
     originalPlayerState: null,
     pendingActions: [],
@@ -598,9 +832,12 @@ export const useGameStore = create<GameState>((set) => ({
       nextSetupSeatNo: state.nextSetupSeatNo,
       currentTurnSeatNo: state.currentTurnSeatNo,
       economyTrackOption: state.economyTrackOption,
+      commonAdvTileCondition: state.commonAdvTileCondition ?? null,
+      gameCreatedAt: state.createdAt ?? null,
       tinkeroidsExtraRingPlanet: state.tinkeroidsExtraRingPlanet ?? null,
       moweidsExtraRingPlanet: state.moweidsExtraRingPlanet ?? null,
       seats: state.seats,
+      passedSeatNos: state.passedSeatNos ?? [],
     }),
 
   setHexes: (hexes) => set({ hexes }),
@@ -647,6 +884,7 @@ export const useGameStore = create<GameState>((set) => ({
     })),
 
   setGamePhase: (gamePhase) => set({ gamePhase }),
+  setParticipantCount: (count) => set({ participantCount: count }),
 
   setNextSetupSeatNo: (seatNo) => set({ nextSetupSeatNo: seatNo }),
 
@@ -719,6 +957,7 @@ export const useGameStore = create<GameState>((set) => ({
       federationMode: null,
       tentativeTechTileCode: null,
       tentativeTechTrackCode: null,
+      tentativeCoverTileCode: null,
       turnState: {
         ...state.turnState,
         pendingActions: [],
@@ -786,7 +1025,8 @@ export const useGameStore = create<GameState>((set) => ({
 
   addFreeConvert: (code: string) =>
     set((state) => {
-      const newCodes = [...(state.turnState.freeConvertActions ?? []), code];
+      const afterMain = state.turnState.pendingActions.length > 0;
+      const newCodes = [...(state.turnState.freeConvertActions ?? []), { code, afterMain }];
       return {
         turnState: {
           ...state.turnState,
@@ -820,6 +1060,8 @@ export const useGameStore = create<GameState>((set) => ({
   clearFleetShipMode: () => set({ fleetShipMode: null }),
 
   setTechTileData: (data) => set({ techTileData: data }),
+
+  setRoundScoringTiles: (tiles) => set({ roundScoringTiles: tiles }),
 
   // 연방 모드
   setFederationMode: (mode) => set({ federationMode: mode }),
@@ -886,6 +1128,7 @@ export const useGameStore = create<GameState>((set) => ({
     set((state) => ({
       tentativeTechTileCode: tileCode,
       tentativeTechTrackCode: trackCode,
+      tentativeCoverTileCode: tileCode === null ? null : state.tentativeCoverTileCode, // 타일 해제 시 커버도 초기화
       turnState: {
         ...state.turnState,
         previewPlayerState: calculatePreviewState(
@@ -894,9 +1137,12 @@ export const useGameStore = create<GameState>((set) => ({
           state.turnState.burnPowerCount,
           state.turnState.freeConvertActions,
           trackCode,
+          tileCode,
         ),
       },
     })),
+
+  setTentativeCoverTile: (tileCode) => set({ tentativeCoverTileCode: tileCode }),
 
   setLeechBatch: (batch) => set({ leechBatch: batch }),
 
@@ -924,6 +1170,12 @@ export const useGameStore = create<GameState>((set) => ({
 
   clearLeechBatch: () => set({ leechBatch: null }),
 
+  setActionLogs: (logs) => set({ actionLogs: logs }),
+  appendActionLog: (log) => set((state) => ({ actionLogs: [...state.actionLogs, log] })),
+  highlightHex: null,
+  setHighlightHex: (hex) => set({ highlightHex: hex }),
+  setBiddingState: (data) => set({ biddingState: data }),
+  setPowerIncomeChoice: (data) => set({ powerIncomeChoice: data }),
   setTinkeroidsActionChoice: (data) => set({ tinkeroidsActionChoice: data }),
 
   setItarsGaiaChoice: (data) => set({ itarsGaiaChoice: data }),
@@ -932,12 +1184,10 @@ export const useGameStore = create<GameState>((set) => ({
   setFederationGroups: (groups) => set({ federationGroups: groups }),
   setGameArtifacts: (artifacts) => set({ gameArtifacts: artifacts }),
 
-  addPassedSeatNo: (seatNo) => set((state) => ({
-    passedSeatNos: state.passedSeatNos.includes(seatNo)
-      ? state.passedSeatNos
-      : [...state.passedSeatNos, seatNo],
-  })),
   clearPassedSeatNos: () => set({ passedSeatNos: [] }),
 
   setSelectingPassBooster: (v) => set({ selectingPassBooster: v }),
 }));
+
+// 디버그용: 콘솔에서 __gs.getState() 로 접근
+if (typeof window !== 'undefined') (window as any).__gs = useGameStore;

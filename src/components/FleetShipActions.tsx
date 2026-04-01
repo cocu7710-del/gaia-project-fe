@@ -10,8 +10,39 @@ interface FleetShipActionsProps {
   playerId: string | null;
 }
 
+/** 함대 액션별 즉시 보상 (프리뷰용) */
+function getFleetActionGain(actionCode: string, playerId: string | null): Record<string, number> | undefined {
+  const state = useGameStore.getState();
+  switch (actionCode) {
+    case 'REBELLION_CONVERT': return { qic: 1, credit: 2 };
+    case 'TWILIGHT_FED':      return { qic: 1, ore: 1, vp: 2 };
+    case 'TF_MARS_VP': {
+      // VP = 보유 기술 타일 수 + 2
+      const td = state.techTileData;
+      const pid = playerId ?? '';
+      const basicCount = td?.basicTiles.filter(t => t.ownerPlayerIds?.includes(pid)).length ?? 0;
+      const advCount = td?.advancedTiles.filter(t => t.takenByPlayerId === pid).length ?? 0;
+      return { vp: basicCount + advCount + 2 };
+    }
+    case 'ECLIPSE_VP': {
+      // VP = 식민화한 고유 행성 타입 수 + 2
+      const pid = playerId ?? '';
+      const myBuildings = state.buildings.filter(b => b.playerId === pid);
+      const planetTypes = new Set<string>();
+      for (const b of myBuildings) {
+        const hex = state.hexes.find(h => h.hexQ === b.hexQ && h.hexR === b.hexR);
+        if (hex && hex.planetType !== 'EMPTY' && hex.planetType !== 'TRANSDIM' && hex.planetType !== 'GAIA') {
+          planetTypes.add(hex.planetType);
+        }
+      }
+      return { vp: planetTypes.size + 2 };
+    }
+    default: return undefined;
+  }
+}
+
 export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, playerId }: FleetShipActionsProps) {
-  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction, clearPendingActions } = useGameStore();
+  const { fleetProbes, turnState, gamePhase, fleetShipMode, setFleetShipMode, addPendingAction, clearPendingActions, usedPowerActionCodes } = useGameStore();
 
   if (gamePhase !== 'PLAYING') return null;
 
@@ -27,7 +58,7 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
   if (myFleets.length === 0) return null;
 
   const handleActionClick = (actionCode: string) => {
-    if (!isMyTurn || hasPendingAction || inFleetShipMode) return;
+    if (!isMyTurn || hasPendingAction || inFleetShipMode || usedPowerActionCodes.includes(actionCode)) return;
 
     const def = FLEET_SHIP_ACTION_DEFS[actionCode];
     if (!def) return;
@@ -94,6 +125,7 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
         isImmediate: def.isImmediate,
         terraformDiscount: def.terraformDiscount,
         navBonus: def.navBonus,
+        gain: getFleetActionGain(actionCode, playerId),
       },
     };
     addPendingAction(action);
@@ -115,7 +147,8 @@ export default function FleetShipActions({ isMyTurn, mySeatNo, playerStates, pla
                 const def = FLEET_SHIP_ACTION_DEFS[code];
                 const canAfford = !currentState || ResourceCalculator.canAfford(currentState as any, def.cost);
                 const hasGaiaformer = !def.requiresGaiaformer || (currentState && (currentState as any).stockGaiaformer > 0);
-                const canClick = isMyTurn && !hasPendingAction && !inFleetShipMode && canAfford && hasGaiaformer;
+                const alreadyUsed = usedPowerActionCodes.includes(code);
+                const canClick = isMyTurn && !hasPendingAction && !inFleetShipMode && canAfford && hasGaiaformer && !alreadyUsed;
                 const isSelectedMode = fleetShipMode?.actionCode === code;
 
                 return (

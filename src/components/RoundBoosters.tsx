@@ -117,7 +117,7 @@ export default function RoundBoosters({
               <div
                 key={booster.id}
                 className="flex flex-col items-center flex-1"
-                style={{ maxWidth: '9%' }}
+                style={{ maxWidth: '11.7%' }}
               >
                 {/* 부스터 이미지 */}
                 <button
@@ -177,23 +177,7 @@ export default function RoundBoosters({
                   )}
                 </div>
 
-                {/* 내 부스터 액션 버튼 */}
-                {isPicked && hasAction && isPlaying && (
-                  <button
-                    onClick={() => canUseAction && onUseBoosterAction?.(booster.boosterCode, actionType)}
-                    disabled={!canUseAction}
-                    className={`mt-1 w-full text-[8px] py-0.5 rounded font-bold transition-colors ${
-                      ownerActionUsed
-                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed line-through'
-                        : canUseAction
-                          ? 'bg-orange-600 hover:bg-orange-500 text-white cursor-pointer'
-                          : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                    }`}
-                    title={ownerActionUsed ? '이미 사용함' : boosterDef?.label || actionType}
-                  >
-                    {ownerActionUsed ? '사용됨' : boosterDef?.label || actionType}
-                  </button>
-                )}
+                {/* 부스터 액션은 개인판(SeatSelector)에서 사용 */}
               </div>
             );
           })}

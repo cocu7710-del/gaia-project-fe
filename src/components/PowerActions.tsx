@@ -1,7 +1,7 @@
 import powerActionImg from '@/assets/board/powerAction.jpg';
 import closeImg from '../assets/resource/Close.png';
 import { useGameStore } from '../store/gameStore';
-import { ResourceCalculator } from '../utils/resourceCalculator';
+import { isNevlasPiActive, effectiveBowl3Power } from '../utils/resourceCalculator';
 import type { PowerAction } from '../types/turnActions';
 
 interface PowerActionsProps {
@@ -15,18 +15,19 @@ interface PowerActionSlot {
   code: string;
   cost: number;
   left: number;
+  width: number;
   description: string;
   gain: Record<string, number>;
 }
 
 const POWER_ACTION_SLOTS: PowerActionSlot[] = [
-  { code: 'PWR_KNOWLEDGE', cost: 7, left: 10.5, description: '지식 +3',       gain: { knowledge: 3 } },
-  { code: 'PWR_TERRAFORM_2', cost: 5, left: 23,   description: '테라포밍 2단계', gain: {} },
-  { code: 'PWR_ORE',        cost: 4, left: 36,   description: '광석 +2',       gain: { ore: 2 } },
-  { code: 'PWR_CREDIT',    cost: 4, left: 49,   description: '크레딧 +7',     gain: { credit: 7 } },
-  { code: 'PWR_KNOWLEDGE_2', cost: 4, left: 62,   description: '지식 +2',      gain: { knowledge: 2 } },
-  { code: 'PWR_TERRAFORM', cost: 3, left: 75,   description: '테라포밍 1단계', gain: {} },
-  { code: 'PWR_TOKEN',     cost: 3, left: 88,   description: '파워토큰 +2',    gain: { powerToken: 2 } },
+  { code: 'PWR_KNOWLEDGE',   cost: 7, left: 0,    width: 14.3, description: '지식 +3',       gain: { knowledge: 3 } },
+  { code: 'PWR_TERRAFORM_2', cost: 5, left: 14.3, width: 14.3, description: '테라포밍 2단계', gain: {} },
+  { code: 'PWR_ORE',         cost: 4, left: 28.6, width: 14.3, description: '광석 +2',       gain: { ore: 2 } },
+  { code: 'PWR_CREDIT',      cost: 4, left: 42.9, width: 14.3, description: '크레딧 +7',     gain: { credit: 7 } },
+  { code: 'PWR_KNOWLEDGE_2', cost: 4, left: 57.2, width: 14.3, description: '지식 +2',       gain: { knowledge: 2 } },
+  { code: 'PWR_TERRAFORM',   cost: 3, left: 71.5, width: 14.3, description: '테라포밍 1단계', gain: {} },
+  { code: 'PWR_TOKEN',       cost: 3, left: 85.8, width: 14.2, description: '파워토큰 +2',    gain: { powerToken: 2 } },
 ];
 
 export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: PowerActionsProps) {
@@ -67,10 +68,7 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
     }
 
     // 네블라 PI: bowl3 * 2로 파워 판정
-    const isNevPi = currentState && (currentState as any).factionCode === 'NEVLAS' && (currentState as any).stockPlanetaryInstitute === 0;
-    const actualAfford = isNevPi
-      ? ((currentState?.powerBowl3 ?? 0) * 2) >= cost
-      : ResourceCalculator.canAfford(currentState as any, { power: cost });
+    const actualAfford = effectiveBowl3Power(currentState?.powerBowl3 ?? 0, isNevlasPiActive(currentState)) >= cost;
     if (currentState && !useBrainstone && !actualAfford) return;
 
     const action: PowerAction = {
@@ -84,7 +82,7 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
 
   return (
     <div className="game-panel">
-      <div className="relative w-[80%] mx-auto">
+      <div className="relative w-full">
         <img
           src={powerActionImg}
           alt="Power Actions"
@@ -95,9 +93,8 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
         {POWER_ACTION_SLOTS.map((slot) => {
           const isUsed = usedCodes.has(slot.code);
           const isTaklonsBrain3 = currentState && (currentState as any).factionCode === 'TAKLONS' && (currentState as any).brainstoneBowl === 3;
-          const isNevlasPi = currentState && (currentState as any).factionCode === 'NEVLAS' && (currentState as any).stockPlanetaryInstitute === 0;
           const bowl3 = currentState?.powerBowl3 ?? 0;
-          const effectivePower = (isNevlasPi ? bowl3 * 2 : bowl3) + (isTaklonsBrain3 ? 3 : 0);
+          const effectivePower = effectiveBowl3Power(bowl3, isNevlasPiActive(currentState)) + (isTaklonsBrain3 ? 3 : 0);
           const canAfford = !currentState || effectivePower >= slot.cost;
           const canClick = isMyTurn && isPlayingPhase && !hasPendingAction && !isUsed && canAfford;
 
@@ -108,19 +105,19 @@ export default function PowerActions({ mySeatNo, isMyTurn, playerStates }: Power
               disabled={!canClick}
               className={`absolute top-0 h-full transition-all ${
                 isUsed
-                  ? 'bg-black/60 cursor-not-allowed'
+                  ? 'cursor-not-allowed'
                   : !canAfford && isMyTurn && isPlayingPhase
-                    ? 'bg-black/40 cursor-not-allowed'
+                    ? 'cursor-not-allowed'
                     : canClick
                       ? 'hover:bg-white/20 cursor-pointer'
                       : 'cursor-default'
               }`}
-              style={{ left: `${slot.left - 6}%`, width: '12%' }}
+              style={{ left: `${slot.left}%`, width: `${slot.width}%` }}
               title={`${slot.description} (파워 ${slot.cost})`}
             >
               {isUsed && (
-                <div className="w-full h-full flex items-center justify-center">
-                  <img src={closeImg} className="w-12 h-12 object-contain" draggable={false} />
+                <div className="absolute inset-0 flex items-end justify-center pb-[5%]">
+                  <img src={closeImg} className="w-[85%] aspect-square object-contain" draggable={false} />
                 </div>
               )}
             </button>

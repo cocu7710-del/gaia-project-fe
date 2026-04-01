@@ -1,8 +1,8 @@
 import { useGameStore } from '../store/gameStore';
 
 export default function GameInfo() {
-  const { status, currentRound, gamePhase, economyTrackOption, nextSetupSeatNo, currentTurnSeatNo, seats,
-    itarsGaiaChoice, tinkeroidsActionChoice } = useGameStore();
+  const { status, currentRound, gamePhase, economyTrackOption, gameCreatedAt, nextSetupSeatNo, currentTurnSeatNo, seats,
+    itarsGaiaChoice, tinkeroidsActionChoice, leechBatch } = useGameStore();
 
   const getStatusText = () => {
     switch (status) {
@@ -20,6 +20,7 @@ export default function GameInfo() {
       case 'SETUP_MINE_XENOS': return '제노스 추가 광산 배치';
       case 'BOOSTER_SELECTION': return '부스터 선택';
       case 'PLAYING': return `${currentRound ?? '?'}라운드 진행`;
+      case 'POWER_INCOME_PHASE': return '파워 수입 선택';
       case 'ITARS_GAIA_PHASE': return '아이타 의회 능력 선택';
       case 'TINKEROIDS_ACTION_PHASE': return '팅커로이드 액션 선택';
       default: return gamePhase || '-';
@@ -61,7 +62,12 @@ export default function GameInfo() {
         </div>
       )}
 
-      {currentTurnPlayer && (
+      {leechBatch ? (
+        <div className="flex items-center gap-1.5">
+          <span className="text-gray-500 text-[10px] uppercase tracking-wider">현재 턴</span>
+          <span className="font-semibold text-purple-400">파워 리치 진행 중</span>
+        </div>
+      ) : currentTurnPlayer ? (
         <div className="flex items-center gap-1.5">
           <span className="text-gray-500 text-[10px] uppercase tracking-wider">현재 턴</span>
           <span className={`font-semibold ${
@@ -69,12 +75,20 @@ export default function GameInfo() {
               ? 'text-blue-400' : 'text-amber-400'
           }`}>{currentTurnPlayer}</span>
         </div>
-      )}
+      ) : null}
 
       {economyTrackOption && (
         <div className="flex items-center gap-1.5">
           <span className="text-gray-500 text-[10px] uppercase tracking-wider">경제</span>
           <span className="font-medium text-gray-200">{economyTrackOption}</span>
+        </div>
+      )}
+
+      {gameCreatedAt && (
+        <div className="flex items-center gap-1.5 ml-auto">
+          <span className="text-gray-500 text-[10px]">
+            {new Date(gameCreatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
         </div>
       )}
     </div>

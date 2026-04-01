@@ -104,7 +104,7 @@ function getTsCredit(stockTs: number): number {
 // 6. 의회(PI) 수입 — 종족별
 // ─────────────────────────────────────────
 const PI_INCOME: Record<string, Partial<IncomeResult>> = {
-  IVITS:         { powerCharge: 4, qic: 1 },
+  IVITS:         { powerCharge: 4, powerToken: 1, qic: 1 },
   GLEENS:        { powerCharge: 4, ore: 1 },
   AMBAS:         { powerCharge: 4, powerToken: 2 },
   BESCODS:       { powerCharge: 4, powerToken: 2 },
@@ -156,11 +156,21 @@ export function calcIncome(
   const knowledgeAcademyCount = Math.max(0, totalAcademies - qicAcademyCount);
   const isItars = factionCode === 'ITARS';
   const academyKnowledge = knowledgeAcademyCount * (isItars ? 3 : 2);
+  const isBescods = factionCode === 'BESCODS';
+  const isNevlas = factionCode === 'NEVLAS';
+  const placedTs = 4 - ps.stockTradingStation;
+  const placedLab = 3 - ps.stockResearchLab;
+  // 매안: 교역소→지식, 연구소→돈 / 네블라: 연구소→2파순 / 일반: 교역소→돈, 연구소→지식
+  const tsCredit = isBescods ? 0 : getTsCredit(ps.stockTradingStation);
+  const tsKnowledge = isBescods ? placedTs : 0;
+  const labKnowledge = (isBescods || isNevlas) ? 0 : placedLab;
+  const labPowerCharge = isNevlas ? placedLab * 2 : 0;
+  const labCredit = isBescods ? (() => { const s=[3,4,5]; let c=0; for(let i=0;i<placedLab&&i<s.length;i++) c+=s[i]; return c; })() : 0;
   result = add(result, {
     ore:         getMineOre(ps.stockMine),
-    credit:      getTsCredit(ps.stockTradingStation),
-    knowledge:   (3 - ps.stockResearchLab)                       // 연구소: 지식 1/개
-                 + academyKnowledge,                              // 지식 아카데미: 2(아이타 3)지식/개
+    credit:      tsCredit + labCredit,
+    knowledge:   tsKnowledge + labKnowledge + academyKnowledge,
+    powerCharge: labPowerCharge,
   });
   result = add(result, piIncome);
 

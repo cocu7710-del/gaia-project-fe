@@ -39,7 +39,11 @@ export interface PlaceMineAction extends GameAction {
     cost: ResourceCost;
     gaiaformerUsed?: boolean; // 소행성 비홈 건설 시 가이아포머 제거
     vpBonus?: number;         // 원시행성 건설 시 +6VP
-    isNewSector?: boolean;    // 다카니안 PI: 새 섹터 광산 건설 시 +2c+1k
+    isGaia?: boolean;         // 가이아 행성 건설 여부
+    isNewSector?: boolean;    // 다카니안 PI / 라운드 점수: 새 섹터 진출
+    isNewPlanet?: boolean;    // 기오덴 PI / 라운드 점수: 새 행성 종류 개척
+    isLantidsMine?: boolean;  // 란티다 기생 광산
+    terraformSteps?: number;  // 라운드 점수 계산용 테라포밍 단계 수
   };
 }
 

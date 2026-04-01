@@ -1,19 +1,27 @@
 import React from 'react';
 import { useGameStore } from '../store/gameStore';
 import { roomApi } from '../api/client';
+import terraformingImg from '../assets/resource/Terraforming.png';
+import powerImg from '../assets/resource/Power.png';
+import qicImg from '../assets/resource/QIC.png';
+import knowledgeImg from '../assets/resource/Knowledge.png';
 
 interface Props {
   roomId: string;
   myPlayerId: string;
 }
 
-const ACTION_LABELS: Record<string, { label: string; desc: string }> = {
-  TINK_TERRAFORM_1: { label: '1삽 테라포밍', desc: '테라포밍 1단계' },
-  TINK_POWER_4: { label: '4파워 순환', desc: '파워 4 차징' },
-  TINK_QIC_1: { label: '1 QIC', desc: 'QIC 1 획득' },
-  TINK_TERRAFORM_3: { label: '3삽 테라포밍', desc: '테라포밍 3단계' },
-  TINK_KNOWLEDGE_3: { label: '3 지식', desc: '지식 3 획득' },
-  TINK_QIC_2: { label: '2 QIC', desc: 'QIC 2 획득' },
+const icon = (src: string, alt: string) => (
+  <img src={src} alt={alt} className="inline-block w-4 h-4 align-middle mx-0.5" />
+);
+
+const ACTION_LABELS: Record<string, { label: React.ReactNode; desc: string }> = {
+  TINK_TERRAFORM_1: { label: <>능력-{icon(terraformingImg, '테라포밍')}1</>, desc: '테라포밍 1단계' },
+  TINK_POWER_4: { label: <>능력-{icon(powerImg, '파워')}↑</>, desc: '파워 4 차징' },
+  TINK_QIC_1: { label: <>능력-{icon(qicImg, 'QIC')}1</>, desc: 'QIC 1 획득' },
+  TINK_TERRAFORM_3: { label: <>능력-{icon(terraformingImg, '테라포밍')}3</>, desc: '테라포밍 3단계' },
+  TINK_KNOWLEDGE_3: { label: <>능력-{icon(knowledgeImg, '지식')}3</>, desc: '지식 3 획득' },
+  TINK_QIC_2: { label: <>능력-{icon(qicImg, 'QIC')}2</>, desc: 'QIC 2 획득' },
 };
 
 export const TinkeroidsActionChoiceDialog: React.FC<Props> = ({ roomId, myPlayerId }) => {

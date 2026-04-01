@@ -35,6 +35,10 @@ export const roomApi = {
   verifyParticipant: (roomId: string, playerId: string) =>
     apiClient.get<VerifyParticipantResponse>(`/api/rooms/${roomId}/participants/${playerId}/verify`),
 
+  // 비딩 수동 시작 (맵 회전 완료 후)
+  startBidding: (roomId: string) =>
+    apiClient.post<{ success: boolean; message?: string }>(`/api/rooms/${roomId}/start-bidding`),
+
   // 좌석 선택
   claimSeat: (roomId: string, seatNo: number, playerId: string) =>
     apiClient.post<ClaimSeatResponse>(`/api/rooms/${roomId}/seats/${seatNo}/claim?playerId=${playerId}`),
@@ -57,7 +61,7 @@ export const roomApi = {
 
   // 건물 업그레이드 (PLAYING 페이즈)
   upgradeBuilding: (roomId: string, playerId: string, hexQ: number, hexR: number,
-                    targetBuildingType: string, techTileCode?: string, techTrackCode?: string, academyType?: string) =>
+                    targetBuildingType: string, techTileCode?: string, techTrackCode?: string, academyType?: string, coveredTileCode?: string) =>
     apiClient.post<UpgradeBuildingResponse>(`/api/rooms/${roomId}/actions/upgrade`, {
       playerId,
       hexQ,
@@ -66,10 +70,11 @@ export const roomApi = {
       techTileCode: techTileCode || null,
       techTrackCode: techTrackCode || null,
       academyType: academyType || null,
+      coveredTileCode: coveredTileCode || null,
     }),
 
   // PLAYING 페이즈 광산 건설
-  placeMine: (roomId: string, playerId: string, hexQ: number, hexR: number, qicUsed = 0, gaiaformerUsed = false, terraformDiscount = 0) =>
+  placeMine: (roomId: string, playerId: string, hexQ: number, hexR: number, qicUsed = 0, gaiaformerUsed = false, terraformDiscount = 0, freeMine = false) =>
     apiClient.post<PlaceMinePlayResponse>(`/api/rooms/${roomId}/actions/mine`, {
       playerId,
       hexQ,
@@ -77,6 +82,7 @@ export const roomApi = {
       qicUsed,
       gaiaformerUsed,
       terraformDiscount,
+      freeMine,
     }),
 
   placeLostPlanet: (roomId: string, playerId: string, hexQ: number, hexR: number) =>
@@ -121,7 +127,7 @@ export const roomApi = {
     apiClient.post(`/api/rooms/${roomId}/actions/burn-power`, { playerId }),
 
   // 라운드 패스 (다음 라운드 부스터 선택 포함)
-  passRound: (roomId: string, playerId: string, nextRoundBoosterCode: string) =>
+  passRound: (roomId: string, playerId: string, nextRoundBoosterCode: string | null) =>
     apiClient.post<PassRoundResponse>(`/api/rooms/${roomId}/pass`, { playerId, nextRoundBoosterCode }),
 
   // 액션 확정 및 턴 넘김
@@ -161,9 +167,9 @@ export const roomApi = {
 
   // 함대 선박 특수 액션
   fleetShipAction: (roomId: string, playerId: string, actionCode: string,
-                    hexQ?: number, hexR?: number, trackCode?: string, techTrackCode?: string) =>
+                    hexQ?: number, hexR?: number, trackCode?: string, techTrackCode?: string, coveredTileCode?: string, qicUsed?: number) =>
     apiClient.post<FleetShipActionResponse>(`/api/rooms/${roomId}/actions/fleet-ship`, {
-      playerId, actionCode, hexQ, hexR, trackCode, techTrackCode,
+      playerId, actionCode, hexQ, hexR, trackCode, techTrackCode, coveredTileCode: coveredTileCode || null, qicUsed: qicUsed || null,
     }),
 
   // 연방 타일 조회
@@ -185,15 +191,15 @@ export const roomApi = {
     ),
 
   // 연방 형성 (타일 선택 후 확정)
-  formFederation: (roomId: string, playerId: string, federationTileCode: string, tokenHexes: number[][], buildingHexes: number[][] = []) =>
+  formFederation: (roomId: string, playerId: string, federationTileCode: string, tokenHexes: number[][], buildingHexes: number[][] = [], techTileCode?: string, techTrackCode?: string, coveredTileCode?: string) =>
     apiClient.post<{ gameId: string; success: boolean; message?: string; federationTileCode?: string; nextTurnSeatNo?: number }>(
       `/api/rooms/${roomId}/federation/form`,
-      { playerId, federationTileCode, buildingHexes, tokenHexes }
+      { playerId, federationTileCode, buildingHexes, tokenHexes, techTileCode, techTrackCode, coveredTileCode: coveredTileCode || null }
     ),
 
   // 연방 그룹 목록 조회
   getFederationGroups: (roomId: string) =>
-    apiClient.get<Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][] }>>(
+    apiClient.get<Array<{ playerId: string; tileCode: string; buildingHexes: number[][]; tokenHexes: number[][]; used: boolean }>>(
       `/api/rooms/${roomId}/federation/groups`
     ),
 
@@ -228,7 +234,82 @@ export const roomApi = {
       `/api/rooms/${roomId}/actions/terrans-gaia-convert`,
       { playerId, credits, ores, qics, knowledges },
     ),
+  // 게임 결과 조회
+  getGameResult: (roomId: string) =>
+    apiClient.get<GameResultResponse>(`/api/rooms/${roomId}/scoring/result`),
+
+  // 액션 로그 조회
+  getActionLog: (roomId: string) =>
+    apiClient.get<ActionLogEntry[]>(`/api/rooms/${roomId}/actions/log`),
+
+  // 파워 수입 항목 조회
+  getPowerIncomeItems: (roomId: string, playerId: string) =>
+    apiClient.get<PowerIncomeItem[]>(`/api/rooms/${roomId}/actions/power-income/${playerId}`),
+
+  // 파워 수입 항목 1개 적용
+  applyPowerIncome: (roomId: string, playerId: string, itemId: string) =>
+    apiClient.post<{ success: boolean; message?: string }>(`/api/rooms/${roomId}/actions/power-income/apply`, { playerId, itemId }),
+
+  // 파워 수입 선택 완료 (순서대로 적용)
+  completePowerIncome: (roomId: string, playerId: string, itemIds: string[]) =>
+    apiClient.post<{ success: boolean; message?: string }>(`/api/rooms/${roomId}/actions/power-income/complete`, { playerId, itemIds }),
+
+  // 비딩 API
+  getBiddingState: (roomId: string) =>
+    apiClient.get<BiddingState>(`/api/rooms/${roomId}/bidding`),
+  placeBid: (roomId: string, playerId: string, amount: number) =>
+    apiClient.post<{ success: boolean; message?: string }>(`/api/rooms/${roomId}/bidding/place`, { playerId, amount }),
+  passBid: (roomId: string, playerId: string) =>
+    apiClient.post<{ success: boolean; message?: string }>(`/api/rooms/${roomId}/bidding/pass`, { playerId }),
+  pickBidSeat: (roomId: string, playerId: string, seatNo: number) =>
+    apiClient.post<{ success: boolean; message?: string }>(`/api/rooms/${roomId}/bidding/pick-seat`, { playerId, seatNo }),
 };
+
+export interface BiddingState {
+  gamePhase: string;
+  biddingRound: number;
+  currentBid: number;
+  turnPlayerId: string;
+  bidders: {
+    playerId: string;
+    nickname: string;
+    bidAmount: number;
+    isPassed: boolean;
+    pickOrder: number;
+    seatNo: number;
+  }[];
+}
+
+export interface ActionLogEntry {
+  actionId: string;
+  playerId: string;
+  seatNo: number;
+  factionCode: string;
+  roundNumber: number;
+  turnSequence: number;
+  actionType: string;
+  actionData: Record<string, any>;
+  createdAt: string;
+}
+
+export interface PowerIncomeItem {
+  id: string;
+  source: string;
+  label: string;
+  powerCharge: number;
+  powerBowl1: number;
+}
+
+export interface GameResultResponse {
+  players: {
+    playerId: string;
+    seatNo: number;
+    factionCode: string;
+    factionNameKo: string;
+    categoryScores: Record<string, number>;
+    totalVP: number;
+  }[];
+}
 
 // 맵 관련 API
 export const mapApi = {
@@ -294,6 +375,8 @@ interface GamePublicStateResponse {
   status: string;
   currentRound: number | null;
   economyTrackOption: string | null;
+  commonAdvTileCondition: string | null; // VP_25 또는 FLEET_3
+  createdAt: string | null;             // 방 생성 시간 (ISO)
   gamePhase: string | null;
   nextSetupSeatNo: number | null;
   currentTurnSeatNo: number | null;
@@ -302,6 +385,7 @@ interface GamePublicStateResponse {
   pendingSpecialPlayerId: string | null;
   pendingSpecialData: Record<string, unknown> | null;
   seats: SeatView[];
+  passedSeatNos?: number[];
 }
 
 interface SeatView {
@@ -500,6 +584,9 @@ interface PlayerStateResponse {
   permanentlyRemovedGaiaformers: number;
   hasQicAcademy: boolean;
   qicAcademyActionUsed: boolean;
+  bidPenalty: number;
+  usedTimeSeconds: number;
+  turnStartedAt: string | null;
 }
 
 interface TechTrackResponse {
@@ -531,6 +618,8 @@ interface TechTileInfo {
   takenByPlayerId: string | null;
   isActionUsed: boolean;
   ownerPlayerIds: string[];
+  actionUsedByPlayerIds?: string[];
+  coveredByMap?: Record<string, string>; // playerId → 덮은 고급 타일 코드
 }
 
 interface AdvancedTechTileInfo {
@@ -542,6 +631,7 @@ interface AdvancedTechTileInfo {
   isTaken: boolean;
   takenByPlayerId: string | null;
   isActionUsed: boolean;
+  actionUsedByPlayerIds?: string[];
 }
 
 interface ScoringTilesResponse {
